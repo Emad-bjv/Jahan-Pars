@@ -8,6 +8,7 @@ from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
+from django.db import transaction
 from django.db.models import Count, Sum
 
 from .models import (
@@ -83,9 +84,9 @@ class AuditMixin:
         return data
 
     def perform_create(self, serializer):
-        super().perform_create(serializer)
-        instance = serializer.instance
-        try:
+        with transaction.atomic():
+            super().perform_create(serializer)
+            instance = serializer.instance
             AuditLog.objects.create(
                 user=self.request.user if self.request.user.is_authenticated else None,
                 action='CREATE',
@@ -95,26 +96,24 @@ class AuditMixin:
                 changes={'created': self._serialize_instance(instance)},
                 ip_address=self._get_client_ip(self.request),
             )
-        except Exception:
-            pass  # لاگ نباید مانع ثبت اصلی شود
 
     def perform_update(self, serializer):
-        instance = serializer.instance
-        old_data = self._serialize_instance(instance)
-        super().perform_update(serializer)
-        instance.refresh_from_db()
-        new_data = self._serialize_instance(instance)
+        with transaction.atomic():
+            instance = serializer.instance
+            old_data = self._serialize_instance(instance)
+            super().perform_update(serializer)
+            instance.refresh_from_db()
+            new_data = self._serialize_instance(instance)
 
-        # محاسبه تفاوت‌ها
-        changes = {}
-        for key in set(list(old_data.keys()) + list(new_data.keys())):
-            old_val = old_data.get(key)
-            new_val = new_data.get(key)
-            if old_val != new_val:
-                changes[key] = {'before': old_val, 'after': new_val}
+            # محاسبه تفاوت‌ها
+            changes = {}
+            for key in set(list(old_data.keys()) + list(new_data.keys())):
+                old_val = old_data.get(key)
+                new_val = new_data.get(key)
+                if old_val != new_val:
+                    changes[key] = {'before': old_val, 'after': new_val}
 
-        if changes:
-            try:
+            if changes:
                 AuditLog.objects.create(
                     user=self.request.user if self.request.user.is_authenticated else None,
                     action='UPDATE',
@@ -124,20 +123,18 @@ class AuditMixin:
                     changes=changes,
                     ip_address=self._get_client_ip(self.request),
                 )
-            except Exception:
-                pass
 
     def perform_destroy(self, instance):
-        obj_data = self._serialize_instance(instance)
-        obj_id = instance.pk
-        obj_repr = str(instance)[:300]
-        model_name = self._get_model_name()
-        ip = self._get_client_ip(self.request)
-        user = self.request.user if self.request.user.is_authenticated else None
+        with transaction.atomic():
+            obj_data = self._serialize_instance(instance)
+            obj_id = instance.pk
+            obj_repr = str(instance)[:300]
+            model_name = self._get_model_name()
+            ip = self._get_client_ip(self.request)
+            user = self.request.user if self.request.user.is_authenticated else None
 
-        super().perform_destroy(instance)
+            super().perform_destroy(instance)
 
-        try:
             AuditLog.objects.create(
                 user=user,
                 action='DELETE',
@@ -147,8 +144,6 @@ class AuditMixin:
                 changes={'deleted': obj_data},
                 ip_address=ip,
             )
-        except Exception:
-            pass
 
 
 # ─────────────────────────────────────────────────────────────────────────────

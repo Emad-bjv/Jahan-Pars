@@ -268,7 +268,7 @@ class WarehouseTransactionForm(forms.ModelForm):
         fields = (
             'transaction_type', 'material', 'quantity',
             'bill_of_lading',
-            'contractor_first_name', 'contractor_last_name',
+            'contractor',
             'contract_number', 'contract_subject',
             'date',
         )
@@ -278,10 +278,8 @@ class WarehouseTransactionForm(forms.ModelForm):
         txn_type = cleaned_data.get('transaction_type')
 
         if txn_type == 'OUT':
-            if not cleaned_data.get('contractor_first_name'):
-                self.add_error('contractor_first_name', 'برای خروج متریال، نام پیمانکار الزامی است.')
-            if not cleaned_data.get('contractor_last_name'):
-                self.add_error('contractor_last_name', 'برای خروج متریال، نام خانوادگی پیمانکار الزامی است.')
+            if not cleaned_data.get('contractor'):
+                self.add_error('contractor', 'برای خروج متریال، انتخاب پیمانکار الزامی است.')
             if not cleaned_data.get('contract_number'):
                 self.add_error('contract_number', 'برای خروج متریال، شماره قرارداد الزامی است.')
             if not cleaned_data.get('contract_subject'):
@@ -291,8 +289,7 @@ class WarehouseTransactionForm(forms.ModelForm):
 
         elif txn_type == 'IN':
             # برای ورود، فیلدهای پیمانکار خالی می‌شوند
-            cleaned_data['contractor_first_name'] = None
-            cleaned_data['contractor_last_name'] = None
+            cleaned_data['contractor'] = None
             cleaned_data['contract_number'] = None
             cleaned_data['contract_subject'] = None
 
@@ -304,7 +301,7 @@ class WarehouseTransactionAdmin(admin.ModelAdmin):
     form = WarehouseTransactionForm
     list_display = ('transaction_type_display', 'material', 'quantity', 'contractor_info', 'bill_of_lading', 'date')
     list_filter = ('transaction_type', ('date', JDateFieldListFilter))
-    search_fields = ('material__name', 'contractor_first_name', 'contractor_last_name', 'bill_of_lading', 'contract_number')
+    search_fields = ('material__name', 'contractor__first_name', 'contractor__last_name', 'bill_of_lading', 'contract_number')
 
     fieldsets = (
         ('نوع عملیات', {
@@ -319,16 +316,13 @@ class WarehouseTransactionAdmin(admin.ModelAdmin):
             'description': 'شماره بارنامه حمل متریال.',
         }),
         ('مشخصات پیمانکار و قرارداد', {
-            'fields': ('contractor_first_name', 'contractor_last_name', 'contract_number', 'contract_subject'),
-            'description': 'هنگام خروج متریال، مشخصات پیمانکار و قرارداد را وارد کنید. سیستم خودکار پیمانکار را ثبت می‌کند.',
+            'fields': ('contractor', 'contract_number', 'contract_subject'),
+            'description': 'هنگام خروج متریال، پیمانکار را انتخاب کرده و مشخصات قرارداد را وارد کنید.',
         }),
         ('تاریخ', {
             'fields': ('date',),
         }),
     )
-
-    class Media:
-        js = ('balance/js/transaction_dynamic_form.js',)
 
     @admin.display(description="نوع تراکنش")
     def transaction_type_display(self, obj):
@@ -336,8 +330,8 @@ class WarehouseTransactionAdmin(admin.ModelAdmin):
 
     @admin.display(description="پیمانکار / بارنامه")
     def contractor_info(self, obj):
-        if obj.transaction_type == 'OUT' and obj.contractor_first_name:
-            return f"{obj.contractor_first_name} {obj.contractor_last_name}"
+        if obj.transaction_type == 'OUT' and obj.contractor:
+            return obj.contractor.get_full_name()
         elif obj.transaction_type == 'IN' and obj.bill_of_lading:
             return f"بارنامه: {obj.bill_of_lading}"
         return "—"

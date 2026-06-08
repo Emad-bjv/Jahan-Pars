@@ -1,7 +1,7 @@
 from django.db import models, transaction
 from django.db.models import Sum
 from django.core.exceptions import ValidationError
-from django.contrib.auth.models import AbstractUser
+from django.contrib.auth.models import AbstractUser, Group
 from django_jalali.db import models as jmodels
 from .utils import normalize_persian_text
 
@@ -37,52 +37,16 @@ class User(AbstractUser):
         if not self.pk and self.role in dict(self.ROLE_CHOICES).keys() and not self.is_superuser:
             self.is_staff = True
         super().save(*args, **kwargs)
-
-    def has_module_perms(self, app_label):
-        if self.is_superuser:
-            return True
-        if self.is_staff and self.role and app_label == 'balance':
-            return True
-        return super().has_module_perms(app_label)
-
-    def has_perm(self, perm, obj=None):
-        if self.is_superuser:
-            return True
         
-        # در صورتی که پرمیشن سنتی (گروه) داشته باشد
-        if super().has_perm(perm, obj):
-            return True
-
-        if not self.is_staff or not self.role:
-            return False
-
-        # ─── مجوزهای دفتر فنی ───
-        if self.role == 'TECHNICAL':
-            # تاییدیه عملکرد: دسترسی کامل
-            if perm.endswith('_technicalofficeapproval'):
-                return True
-            
-            # سایر بخش‌ها (پیمانکار، رسته، متریال، تراکنش انبار): فقط خواندن
-            allowed_view_only = [
-                'balance.view_contractor',
-                'balance.view_workcategory',
-                'balance.view_materialitem',
-                'balance.view_warehousetransaction'
-            ]
-            if perm in allowed_view_only:
-                return True
-
-        # ─── مجوزهای انباردار ───
-        elif self.role == 'WAREHOUSE':
-            # تراکنش انبار: دسترسی کامل
-            if perm.endswith('_warehousetransaction'):
-                return True
-            
-            # پیمانکار، رسته، کالا: فقط خواندن
-            if perm in ['balance.view_contractor', 'balance.view_materialitem', 'balance.view_workcategory']:
-                return True
-
-        return False
+        # ثبت و اختصاص گروه کاربری استاندارد جنگو بر اساس Role
+        if self.role:
+            try:
+                group_name = f"{self.role}_GROUP"
+                group = Group.objects.get(name=group_name)
+                self.groups.clear()
+                self.groups.add(group)
+            except Group.DoesNotExist:
+                pass
 
 
 class Contractor(models.Model):
@@ -137,6 +101,11 @@ class MaterialItem(models.Model):
         verbose_name="آستانه موجودی بحرانی",
         help_text="اگر موجودی انبار از این مقدار کمتر شود، هشدار صادر می‌شود. مقدار ۰ = غیرفعال."
     )
+    current_stock = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0,
+        verbose_name="موجودی لحظه‌ای",
+        help_text="توسط سیستم و به صورت اتمیک به‌روز می‌شود."
+    )
 
     class Meta:
         verbose_name = "کالا / متریال"
@@ -165,14 +134,12 @@ class WarehouseTransaction(models.Model):
         help_text="شماره بارنامه حمل متریال (فقط برای تراکنش ورود)."
     )
 
-    contractor_first_name = models.CharField(max_length=100, blank=True, null=True, verbose_name="نام پیمانکار")
-    contractor_last_name = models.CharField(max_length=100, blank=True, null=True, verbose_name="نام خانوادگی پیمانکار")
     contract_number = models.CharField(max_length=100, blank=True, null=True, verbose_name="شماره قرارداد")
     contract_subject = models.CharField(max_length=255, blank=True, null=True, verbose_name="موضوع قرارداد")
 
     contractor = models.ForeignKey(
-        'Contractor', on_delete=models.SET_NULL, null=True, blank=True,
-        verbose_name="پیمانکار (خودکار)", editable=False,
+        'Contractor', on_delete=models.PROTECT, null=True, blank=True,
+        verbose_name="پیمانکار"
     )
 
     date = jmodels.jDateField(verbose_name="تاریخ", db_index=True)
@@ -194,45 +161,55 @@ class WarehouseTransaction(models.Model):
     def clean(self):
         super().clean()
         if self.transaction_type == 'OUT':
-            total_in = WarehouseTransaction.objects.filter(
-                material=self.material, transaction_type='IN'
-            ).aggregate(t=Sum('quantity'))['t'] or 0
+            if not self.contractor:
+                raise ValidationError({'contractor': 'برای تراکنش خروج، انتخاب پیمانکار الزامی است.'})
             
-            qs_out = WarehouseTransaction.objects.filter(
-                material=self.material, transaction_type='OUT'
-            )
-            if self.pk:
-                qs_out = qs_out.exclude(pk=self.pk)
-            total_out = qs_out.aggregate(t=Sum('quantity'))['t'] or 0
-            
-            current_stock = total_in - total_out
-            if self.quantity > current_stock:
+            # This is a soft check for forms. The hard check is inside save() with select_for_update()
+            if not self.pk and self.quantity > self.material.current_stock:
                 raise ValidationError({
-                    'quantity': f'موجودی کافی نیست! موجودی فعلی انبار: {current_stock}'
+                    'quantity': f'موجودی کافی نیست! موجودی فعلی انبار: {self.material.current_stock}'
                 })
 
     def save(self, *args, **kwargs):
-        if self.contractor_first_name:
-            self.contractor_first_name = normalize_persian_text(self.contractor_first_name)
-        if self.contractor_last_name:
-            self.contractor_last_name = normalize_persian_text(self.contractor_last_name)
+        is_new = self.pk is None
         if self.contract_subject:
             self.contract_subject = normalize_persian_text(self.contract_subject)
-
-        if self.transaction_type == 'OUT' and self.contractor_first_name and self.contractor_last_name:
-            with transaction.atomic():
-                contractor_obj, _ = Contractor.objects.get_or_create(
-                    first_name=self.contractor_first_name,
-                    last_name=self.contractor_last_name,
-                )
-                self.contractor = contractor_obj
-        elif self.transaction_type == 'IN':
+            
+        if self.transaction_type == 'IN':
             self.contractor = None
-            self.contractor_first_name = None
-            self.contractor_last_name = None
             self.contract_number = None
             self.contract_subject = None
-        super().save(*args, **kwargs)
+
+        with transaction.atomic():
+            mat = MaterialItem.objects.select_for_update().get(pk=self.material_id)
+            
+            if is_new:
+                diff = self.quantity
+            else:
+                old_instance = WarehouseTransaction.objects.get(pk=self.pk)
+                diff = self.quantity - old_instance.quantity
+
+            if self.transaction_type == 'IN':
+                mat.current_stock += diff
+            elif self.transaction_type == 'OUT':
+                # Re-check stock in atomic block
+                old_qty = 0 if is_new else old_instance.quantity
+                if self.quantity > (mat.current_stock + old_qty):
+                    raise ValidationError({'quantity': f'موجودی کافی نیست! موجودی فعلی انبار: {mat.current_stock}'})
+                mat.current_stock -= diff
+            
+            mat.save()
+            super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        with transaction.atomic():
+            mat = MaterialItem.objects.select_for_update().get(pk=self.material_id)
+            if self.transaction_type == 'IN':
+                mat.current_stock -= self.quantity
+            elif self.transaction_type == 'OUT':
+                mat.current_stock += self.quantity
+            mat.save()
+            super().delete(*args, **kwargs)
 
 
 class TechnicalOfficeApproval(models.Model):

@@ -58,6 +58,7 @@ const Icons = {
 const TransactionForm = ({ onSuccess }) => {
   const [materials, setMaterials] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [contractors, setContractors] = useState([]);
   const [loading, setLoading] = useState(false);
   const [liveInventory, setLiveInventory] = useState(null);
   const { showToast } = useToast();
@@ -68,8 +69,7 @@ const TransactionForm = ({ onSuccess }) => {
     quantity: '',
     date: new Date().toISOString().split('T')[0],
     bill_of_lading: '',
-    contractor_first_name: '',
-    contractor_last_name: '',
+    contractor: '',
     contract_number: '',
     contract_subject: '',
     // Fields for Inbound Material Creation
@@ -93,12 +93,14 @@ const TransactionForm = ({ onSuccess }) => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [matRes, catRes] = await Promise.all([
+        const [matRes, catRes, contRes] = await Promise.all([
           api.get('materials/'),
-          api.get('categories/')
+          api.get('categories/'),
+          api.get('contractors/')
         ]);
         setMaterials(matRes.data.results || matRes.data);
         setCategories(catRes.data.results || catRes.data);
+        setContractors(contRes.data.results || contRes.data);
       } catch (err) {
         console.error("Error fetching data", err);
       }
@@ -197,8 +199,7 @@ const TransactionForm = ({ onSuccess }) => {
         quantity: formData.quantity,
         date: formData.date,
         bill_of_lading: formData.bill_of_lading,
-        contractor_first_name: formData.contractor_first_name,
-        contractor_last_name: formData.contractor_last_name,
+        contractor: formData.contractor,
         contract_number: formData.contract_number,
         contract_subject: formData.contract_subject
       };
@@ -363,13 +364,16 @@ const TransactionForm = ({ onSuccess }) => {
                 <JalaliDatePicker name="date" value={formData.date} onChange={handleChange} required />
               </div>
               
-              <div className="form-group">
-                <label className="form-label">نام پیمانکار <span style={{color: 'red'}}>*</span></label>
-                <input type="text" name="contractor_first_name" className="form-control" value={formData.contractor_first_name} onChange={handleChange} required />
-              </div>
-              <div className="form-group">
-                <label className="form-label">نام خانوادگی پیمانکار <span style={{color: 'red'}}>*</span></label>
-                <input type="text" name="contractor_last_name" className="form-control" value={formData.contractor_last_name} onChange={handleChange} required />
+              <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                <label className="form-label">پیمانکار <span style={{color: 'red'}}>*</span></label>
+                <Select 
+                  styles={selectStyles}
+                  placeholder="انتخاب پیمانکار..."
+                  isClearable
+                  options={contractors.map(c => ({ value: c.id, label: `${c.first_name} ${c.last_name}` }))}
+                  value={formData.contractor ? { value: formData.contractor, label: contractors.find(c => c.id === parseInt(formData.contractor))?.first_name + ' ' + contractors.find(c => c.id === parseInt(formData.contractor))?.last_name } : null}
+                  onChange={selected => setFormData({...formData, contractor: selected ? selected.value : ''})}
+                />
               </div>
               <div className="form-group">
                 <label className="form-label">شماره قرارداد <span style={{color: 'red'}}>*</span></label>

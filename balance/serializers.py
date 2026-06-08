@@ -117,21 +117,18 @@ class WarehouseTransactionSerializer(serializers.ModelSerializer):
             'material', 'material_detail',
             'quantity',
             'bill_of_lading',
-            'contractor_first_name', 'contractor_last_name',
             'contract_number', 'contract_subject',
             'contractor', 'contractor_detail',
             'date', 'created_at',
         ]
-        read_only_fields = ['created_at', 'contractor']
+        read_only_fields = ['created_at']
 
     def validate(self, data):
         txn_type = data.get('transaction_type', getattr(self.instance, 'transaction_type', None))
 
         if txn_type == 'OUT':
-            if not data.get('contractor_first_name'):
-                raise serializers.ValidationError({'contractor_first_name': 'برای تراکنش خروج، نام پیمانکار الزامی است.'})
-            if not data.get('contractor_last_name'):
-                raise serializers.ValidationError({'contractor_last_name': 'برای تراکنش خروج، نام خانوادگی پیمانکار الزامی است.'})
+            if not data.get('contractor') and getattr(self.instance, 'contractor_id', None) is None:
+                raise serializers.ValidationError({'contractor': 'برای تراکنش خروج، پیمانکار الزامی است.'})
         return data
 
     def validate_quantity(self, value):

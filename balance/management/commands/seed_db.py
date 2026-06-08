@@ -253,8 +253,6 @@ class Command(BaseCommand):
                                 material=mat,
                                 quantity=qty,
                                 contractor=contractor_obj,
-                                contractor_first_name=contractor_obj.first_name,
-                                contractor_last_name=contractor_obj.last_name,
                                 contract_number=contract_number,
                                 contract_subject=contract_subject,
                                 date=out_date
@@ -313,5 +311,14 @@ class Command(BaseCommand):
 
         TechnicalOfficeApproval.objects.bulk_create(approvals_to_create)
         self.stdout.write(f"Created {len(approvals_to_create)} Technical Office Approvals.")
+
+        self.stdout.write('Calculating current_stock for all materials...')
+        from django.db.models import Sum
+        from decimal import Decimal
+        for mat in MaterialItem.objects.all():
+            total_in = WarehouseTransaction.objects.filter(material=mat, transaction_type='IN').aggregate(Sum('quantity'))['quantity__sum'] or Decimal('0')
+            total_out = WarehouseTransaction.objects.filter(material=mat, transaction_type='OUT').aggregate(Sum('quantity'))['quantity__sum'] or Decimal('0')
+            mat.current_stock = total_in - total_out
+            mat.save()
 
         self.stdout.write(self.style.SUCCESS('Successfully seeded database with logically consistent, highly realistic test data!'))
