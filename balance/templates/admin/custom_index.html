@@ -1,0 +1,85 @@
+{% extends "admin/index.html" %}
+{% load i18n %}
+
+{% block content %}
+{# ─── کارت دانلود گزارش موازنه متریال ─── #}
+<div style="
+    background: linear-gradient(135deg, #1F3864 0%, #2E75B6 100%);
+    border-radius: 10px;
+    padding: 24px 32px;
+    margin-bottom: 28px;
+    text-align: center;
+    direction: rtl;
+    box-shadow: 0 4px 16px rgba(31,56,100,0.25);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 16px;
+">
+    <div style="text-align: right;">
+        <div style="color:#AED6F1; font-size:12px; margin-bottom:4px; letter-spacing:0.5px;">ابزار گزارش‌گیری</div>
+        <h2 style="color:#FFFFFF; margin:0 0 6px; font-size:20px; font-weight:700;">گزارش موازنه متریال</h2>
+        <p style="color:#BDD7EE; margin:0; font-size:13px; line-height:1.6;">
+            خروجی کامل تحلیل موازنه متریال برای تمام پیمانکاران در قالب فایل Excel
+        </p>
+    </div>
+    <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+        <a href="{% url 'balance-download' %}"
+           style="
+               display: inline-flex;
+               align-items: center;
+               gap: 8px;
+               background: #27AE60;
+               color: #FFFFFF;
+               padding: 12px 24px;
+               border-radius: 6px;
+               text-decoration: none;
+               font-weight: 700;
+               font-size: 14px;
+               white-space: nowrap;
+               box-shadow: 0 2px 8px rgba(39,174,96,0.35);
+               transition: background 0.2s;
+           "
+           onmouseover="this.style.background='#219A52'"
+           onmouseout="this.style.background='#27AE60'"
+        >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            دانلود گزارش تفکیکی پیمانکاران
+        </a>
+        <a href="{% url 'balance-download-global' %}"
+           style="
+               display: inline-flex;
+               align-items: center;
+               gap: 8px;
+               background: #2980B9;
+               color: #FFFFFF;
+               padding: 12px 24px;
+               border-radius: 6px;
+               text-decoration: none;
+               font-weight: 700;
+               font-size: 14px;
+               white-space: nowrap;
+               box-shadow: 0 2px 8px rgba(41,128,185,0.35);
+               transition: background 0.2s;
+           "
+           onmouseover="this.style.background='#2471A3'"
+           onmouseout="this.style.background='#2980B9'"
+        >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            دانلود گزارش موازنه کل کارگاه
+        </a>
+    </div>
+</div>
+{# ─────────────────────────────────────── #}
+
+{{ block.super }}
+{% endblock %}

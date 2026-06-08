@@ -1,0 +1,29 @@
+# Python virtual environment
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+db.sqlite3
+
+# Node modules and build output
+frontend/node_modules/
+frontend/dist/
+node_modules/
+dist/
+
+# Environment variables
+.env
+frontend/.env
+backend/.env
+
+# Temporary and office files
+~$*
+*.xlsx
+*.pdf
+prof_stats
+
+# IDE settings
+.vscode/
+.idea/
+.gemini/
