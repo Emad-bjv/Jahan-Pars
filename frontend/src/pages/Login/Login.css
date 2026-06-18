@@ -154,6 +154,7 @@
   background: rgba(255, 255, 255, 0.1);
   border-radius: var(--radius-md);
   backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   border: 1px solid rgba(255, 255, 255, 0.1);
   font-size: 0.9rem;
   font-weight: 500;
@@ -262,11 +263,14 @@
   border-radius: var(--radius-md);
   border: 1.5px solid var(--border-color-strong);
   background: var(--bg-surface-solid);
-  color: var(--text-main);
+  color: var(--input-text-color);
   font-family: inherit;
   font-size: 0.95rem;
   transition: all var(--duration-base) var(--ease-smooth);
   outline: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
 }
 
 .input-control:focus {

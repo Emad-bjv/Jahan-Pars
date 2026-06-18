@@ -87,6 +87,32 @@ class MaterialItemSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("درصد پرتی باید عددی بین ۰ تا ۱۰۰ باشد.")
         return value
 
+    def validate(self, data):
+        # Only validate duplicate constraints if we are updating (self.instance is not None).
+        # For creation, the ViewSet handles the "get or create" flow.
+        if self.instance:
+            name = data.get('name', self.instance.name).strip()
+            work_category = data.get('work_category', self.instance.work_category)
+            material_type = data.get('material_type', self.instance.material_type or '').strip()
+            size = data.get('size', self.instance.size or '').strip()
+            thickness = data.get('thickness', self.instance.thickness or '').strip()
+            unit = data.get('unit', self.instance.unit).strip()
+
+            qs = MaterialItem.objects.filter(
+                name__iexact=name,
+                work_category=work_category,
+                material_type__iexact=material_type,
+                size__iexact=size,
+                thickness__iexact=thickness,
+                unit=unit
+            ).exclude(pk=self.instance.pk)
+
+            if qs.exists():
+                raise serializers.ValidationError(
+                    "این متریال با مشخصات وارد شده (نام، رسته، جنس، سایز، ضخامت و واحد) قبلاً در سیستم ثبت شده است."
+                )
+        return data
+
 
 class MaterialItemMinimalSerializer(serializers.ModelSerializer):
     unit_display = serializers.CharField(source='get_unit_display', read_only=True)
@@ -116,8 +142,8 @@ class WarehouseTransactionSerializer(serializers.ModelSerializer):
             'transaction_type', 'transaction_type_display',
             'material', 'material_detail',
             'quantity',
-            'bill_of_lading',
-            'contract_number', 'contract_subject',
+            'bill_of_lading', 'bill_of_lading_image',
+            'contract_number', 'contract_subject', 'exit_document_image',
             'contractor', 'contractor_detail',
             'date', 'created_at',
         ]
@@ -126,9 +152,16 @@ class WarehouseTransactionSerializer(serializers.ModelSerializer):
     def validate(self, data):
         txn_type = data.get('transaction_type', getattr(self.instance, 'transaction_type', None))
 
-        if txn_type == 'OUT':
+        if txn_type == 'IN':
+            img = data.get('bill_of_lading_image', getattr(self.instance, 'bill_of_lading_image', None))
+            if not img or not str(img).strip():
+                raise serializers.ValidationError({'bill_of_lading_image': 'اسکن تصویر بارنامه برای تراکنش ورود الزامی است.'})
+        elif txn_type == 'OUT':
             if not data.get('contractor') and getattr(self.instance, 'contractor_id', None) is None:
                 raise serializers.ValidationError({'contractor': 'برای تراکنش خروج، پیمانکار الزامی است.'})
+            img = data.get('exit_document_image', getattr(self.instance, 'exit_document_image', None))
+            if not img or not str(img).strip():
+                raise serializers.ValidationError({'exit_document_image': 'اسکن تصویر برگه خروج برای تراکنش خروج الزامی است.'})
         return data
 
     def validate_quantity(self, value):

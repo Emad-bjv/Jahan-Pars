@@ -167,9 +167,6 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
-    # صفحه‌بندی پیش‌فرض (۲۵ آیتم در هر صفحه)
-    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 25,
     # فرمت تاریخ استاندارد ISO
     'DATE_FORMAT': '%Y-%m-%d',
     'DATE_INPUT_FORMATS': ['%Y-%m-%d'],

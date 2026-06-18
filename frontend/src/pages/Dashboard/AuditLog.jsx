@@ -62,8 +62,8 @@ const AuditLog = () => {
   const formatTimestamp = (ts) => {
     if (!ts) return '—';
     const d = new Date(ts);
-    const date = d.toLocaleDateString('fa-IR');
-    const time = d.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' });
+    const date = d.toLocaleDateString('fa-IR-u-nu-latn');
+    const time = d.toLocaleTimeString('fa-IR-u-nu-latn', { hour: '2-digit', minute: '2-digit' });
     return `${date} — ${time}`;
   };
 
@@ -123,9 +123,9 @@ const AuditLog = () => {
   };
 
   return (
-    <div style={{ maxWidth: '1400px', margin: '0 auto', paddingTop: '0.5rem' }}>
+    <div style={{ maxWidth: '1400px', margin: '0 auto', paddingTop: '0.5rem', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 2.5rem)' }}>
       {/* Header */}
-      <div className="page-header animate-in">
+      <div className="page-header animate-in" style={{ flexShrink: 0 }}>
         <div>
           <h1 className="gradient-text">تاریخچه تغییرات سیستم</h1>
           <p>ثبت و پیگیری تمام عملیات‌های ایجاد، ویرایش و حذف</p>
@@ -135,7 +135,7 @@ const AuditLog = () => {
       </div>
 
       {/* Filters */}
-      <div className="section-panel animate-in animate-in-delay-1" style={{ marginBottom: '1.5rem' }}>
+      <div className="section-panel animate-in animate-in-delay-1" style={{ marginBottom: '1.5rem', flexShrink: 0 }}>
         <div className="section-title" style={{ marginBottom: '1rem' }}>
           <div className="section-title-icon">{Icons.history}</div>
           فیلتر لاگ‌ها
@@ -163,8 +163,8 @@ const AuditLog = () => {
       </div>
 
       {/* Logs Table */}
-      <div className="section-panel animate-in animate-in-delay-2">
-        <div className="section-title">
+      <div className="section-panel animate-in animate-in-delay-2" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div className="section-title" style={{ flexShrink: 0 }}>
           <div className="section-title-icon">{Icons.history}</div>
           لاگ تغییرات
           {!loading && <span style={{ marginRight: 'auto', fontSize: '0.8rem', color: 'var(--text-dim)', fontWeight: 500 }}>{toPersianDigits(logs.length)} رکورد</span>}
@@ -173,7 +173,7 @@ const AuditLog = () => {
         {loading ? (
           <SkeletonTable rows={6} cols={5} />
         ) : (
-          <div className="table-container">
+          <div className="table-container" style={{ flex: 1, overflowY: 'auto' }}>
             <table className="table">
               <thead>
                 <tr>

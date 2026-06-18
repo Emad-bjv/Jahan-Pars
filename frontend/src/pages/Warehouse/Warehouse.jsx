@@ -1,6 +1,7 @@
 import React, { useContext, useState } from 'react';
 import { AuthContext } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import UserProfileModal from '../../components/UserProfileModal';
 import TransactionForm from './TransactionForm';
 import TransactionList from './TransactionList';
 import { SkeletonTable } from '../../components/Skeleton';
@@ -43,6 +44,7 @@ const Warehouse = () => {
   const navigate = useNavigate();
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [showInventory, setShowInventory] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
   const { showToast } = useToast();
 
@@ -86,7 +88,7 @@ const Warehouse = () => {
   };
 
   return (
-    <div style={{ padding: '1rem 1.25rem', maxWidth: '1200px', margin: '0 auto' }}>
+    <div style={{ padding: '1rem 1.25rem', maxWidth: '1200px', margin: '0 auto', display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       {/* Premium Header */}
       <header className="section-panel animate-in" style={{ 
         padding: '1rem 1.25rem', 
@@ -97,7 +99,8 @@ const Warehouse = () => {
         alignItems: 'center',
         flexWrap: 'wrap',
         gap: '0.75rem',
-        zIndex: 50
+        zIndex: 50,
+        flexShrink: 0
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <div style={{
@@ -123,12 +126,17 @@ const Warehouse = () => {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
           {/* User Badge */}
-          <div className={`sidebar-user ${getRoleClass(user)}`} style={{ margin: 0, padding: '0.5rem 0.75rem' }}>
+          <div 
+            className={`sidebar-user ${getRoleClass(user)}`} 
+            style={{ margin: 0, padding: '0.5rem 0.75rem', cursor: 'pointer' }}
+            onClick={() => setIsProfileModalOpen(true)}
+            title="مشاهده اطلاعات حساب کاربری"
+          >
             <div className="sidebar-user-avatar" style={{ width: '32px', height: '32px', fontSize: '0.75rem' }}>
-              {getInitials(user?.username)}
+              {getInitials(user?.full_name || user?.username)}
             </div>
             <div className="sidebar-user-info">
-              <div className="sidebar-user-name" style={{ fontSize: '0.8rem' }}>{user?.username}</div>
+              <div className="sidebar-user-name" style={{ fontSize: '0.8rem' }}>{user?.full_name || user?.username}</div>
               <div className="sidebar-user-role" style={{ fontSize: '0.68rem' }}>
                 {user?.is_superuser ? 'سوپر ادمین' : roleLabels[user?.role] || user?.role}
               </div>
@@ -153,21 +161,21 @@ const Warehouse = () => {
         </div>
       </header>
 
-      <main>
+      <main style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
         {showInventory && (
           <WarehouseInventory isModal={true} onClose={() => setShowInventory(false)} />
         )}
-        <div className="animate-in animate-in-delay-1" style={{ position: 'relative', zIndex: 10 }}>
+        <div className="animate-in animate-in-delay-1" style={{ position: 'relative', zIndex: 10, flexShrink: 0 }}>
           <TransactionForm onSuccess={handleSuccess} />
         </div>
         
-        <div className="animate-in animate-in-delay-2" style={{ marginTop: '1.5rem', position: 'relative', zIndex: 1 }}>
+        <div className="animate-in animate-in-delay-2" style={{ marginTop: '1.5rem', position: 'relative', zIndex: 1, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
             <div className="section-title" style={{ marginBottom: 0 }}>
               <div className="section-title-icon">{Icons.list}</div>
               لیست تراکنش‌های اخیر
             </div>
-            <button className="btn btn-accent" onClick={downloadReport}>
+            <button className="btn btn-excel" onClick={downloadReport}>
               {Icons.download}
               دانلود گزارش انبار
             </button>
@@ -175,6 +183,14 @@ const Warehouse = () => {
           <TransactionList refreshTrigger={refreshTrigger} />
         </div>
       </main>
+
+      {/* User Profile Modal */}
+      {isProfileModalOpen && (
+        <UserProfileModal 
+          user={user} 
+          onClose={() => setIsProfileModalOpen(false)} 
+        />
+      )}
     </div>
   );
 };

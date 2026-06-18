@@ -25,6 +25,9 @@ from .views import (
     system_notifications,
     audit_logs_list,
     global_material_inventory,
+    contractor_outbound_summary,
+    technical_approval_summary,
+    global_balance_rows,
 )
 
 # ─── Router اصلی ─────────────────────────────────────────────────────────────
@@ -53,6 +56,9 @@ urlpatterns = [
     path('balance/material-inventory/', live_material_inventory, name='balance-live-inventory'),
     path('balance/contractor-material-received/', live_contractor_material_received, name='balance-live-received'),
     path('balance/inventory/', global_material_inventory, name='balance-global-inventory'),
+    path('balance/contractor-outbound/', contractor_outbound_summary, name='balance-contractor-outbound'),
+    path('balance/contractor-approvals/', technical_approval_summary, name='balance-contractor-approvals'),
+    path('balance/global-rows/', global_balance_rows, name='balance-global-rows'),
 
     # هشدارهای سیستم (نوتیفیکیشن)
     path('notifications/', system_notifications, name='system-notifications'),

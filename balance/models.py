@@ -133,9 +133,17 @@ class WarehouseTransaction(models.Model):
         max_length=100, blank=True, null=True, verbose_name="شماره بارنامه",
         help_text="شماره بارنامه حمل متریال (فقط برای تراکنش ورود)."
     )
+    bill_of_lading_image = models.TextField(
+        blank=True, null=True, verbose_name="تصویر بارنامه اسکن شده",
+        help_text="تصویر بارنامه به صورت کدگذاری شده Base64."
+    )
 
     contract_number = models.CharField(max_length=100, blank=True, null=True, verbose_name="شماره قرارداد")
     contract_subject = models.CharField(max_length=255, blank=True, null=True, verbose_name="موضوع قرارداد")
+    exit_document_image = models.TextField(
+        blank=True, null=True, verbose_name="تصویر برگه خروج اسکن شده",
+        help_text="تصویر برگه خروج به صورت کدگذاری شده Base64."
+    )
 
     contractor = models.ForeignKey(
         'Contractor', on_delete=models.PROTECT, null=True, blank=True,
@@ -179,6 +187,9 @@ class WarehouseTransaction(models.Model):
             self.contractor = None
             self.contract_number = None
             self.contract_subject = None
+            self.exit_document_image = None
+        elif self.transaction_type == 'OUT':
+            self.bill_of_lading_image = None
 
         with transaction.atomic():
             mat = MaterialItem.objects.select_for_update().get(pk=self.material_id)

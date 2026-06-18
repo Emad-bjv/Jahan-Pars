@@ -693,11 +693,13 @@ def generate_material_balance_excel(
     return output.getvalue()
 
 
-def generate_global_material_balance_excel(is_superuser: bool = False) -> bytes:
+def get_global_material_balance_rows_data() -> list[dict]:
     """
-    تولید گزارش موازنه متریال کل کارگاه به صورت تجمیعی.
+    دریافت اطلاعات موازنه متریال کل کارگاه به صورت تجمیعی.
     """
     from .models import WarehouseTransaction, TechnicalOfficeApproval, MaterialItem, Contractor
+    from django.db.models import Sum
+    from decimal import Decimal, ROUND_HALF_UP
 
     # ─── ۱. بارگذاری و جمع‌بندی داده‌های تراکنش خروجی انبار کل ─────────────────
     issue_qs = WarehouseTransaction.objects.filter(transaction_type='OUT')
@@ -718,22 +720,7 @@ def generate_global_material_balance_excel(is_superuser: bool = False) -> bytes:
     all_keys = set(issued_map.keys()) | set(approved_map.keys())
 
     if not all_keys:
-        # فایل خالی
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "بدون داده"
-        ws.sheet_view.rightToLeft = True
-        ws.merge_cells('A1:E1')
-        c = ws['A1']
-        c.value = "هیچ داده‌ای برای گزارش‌گیری وجود ندارد."
-        c.font = Font(name='Calibri', size=12, bold=True, color="9C0006")
-        c.alignment = _rtl_alignment(horizontal='center')
-        if not is_superuser:
-            ws.protection.sheet = True
-            ws.protection.password = "jahanpars2026"
-        output = io.BytesIO()
-        wb.save(output)
-        return output.getvalue()
+        return []
 
     contractor_ids = {k[0] for k in all_keys if k[0] is not None}
     material_ids   = {k[1] for k in all_keys}
@@ -784,14 +771,41 @@ def generate_global_material_balance_excel(is_superuser: bool = False) -> bytes:
             'mat_type':       material.material_type or "—",
             'thickness':      material.thickness or "—",
             'unit':           material.get_unit_display(),
-            'total_issued':   total_issued,
-            'approved_work':  approved_work,
+            'total_issued':   float(total_issued),
+            'approved_work':  float(approved_work),
             'waste_pct':      float(material.waste_percentage),
-            'allowed_waste':  allowed_waste,
-            'balance':        balance,
+            'allowed_waste':  float(allowed_waste),
+            'balance':        float(balance) if isinstance(balance, Decimal) else balance,
             'balance_label':  _balance_label(balance),
         }
         rows.append(row)
+
+    return rows
+
+
+def generate_global_material_balance_excel(is_superuser: bool = False) -> bytes:
+    """
+    تولید گزارش موازنه متریال کل کارگاه به صورت تجمیعی.
+    """
+    rows = get_global_material_balance_rows_data()
+    
+    if not rows:
+        # فایل خالی
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "بدون داده"
+        ws.sheet_view.rightToLeft = True
+        ws.merge_cells('A1:E1')
+        c = ws['A1']
+        c.value = "هیچ داده‌ای برای گزارش‌گیری وجود ندارد."
+        c.font = Font(name='Calibri', size=12, bold=True, color="9C0006")
+        c.alignment = _rtl_alignment(horizontal='center')
+        if not is_superuser:
+            ws.protection.sheet = True
+            ws.protection.password = "jahanpars2026"
+        output = io.BytesIO()
+        wb.save(output)
+        return output.getvalue()
 
     # ─── ۵. ساخت فایل اکسل ───────────────────
     wb = Workbook()
@@ -892,8 +906,8 @@ def get_contractors_balance_summary() -> list[dict]:
     contractors = {c.id: c for c in Contractor.objects.filter(id__in=contractor_ids)}
     materials = {m.id: m for m in MaterialItem.objects.filter(id__in=material_ids)}
 
-    # محاسبه موازنه برای هر ترکیب (پیمانکار، متریال) و جمع زدن بر اساس پیمانکار
-    contractor_balances = {c_id: Decimal('0') for c_id in contractor_ids}
+    # محاسبه موازنه برای هر ترکیب (پیمانکار، متریال) و جمع زدن بر اساس پیمانکار به تفکیک واحد
+    contractor_balances = {c_id: {} for c_id in contractor_ids}
     contractor_under_review = {c_id: 0 for c_id in contractor_ids}
 
     for c_id, m_id, c_num, c_subj in all_keys:
@@ -912,16 +926,21 @@ def get_contractors_balance_summary() -> list[dict]:
             waste_pct     = material.waste_percentage / Decimal('100')
             allowed_waste = (approved_work * waste_pct).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
             balance       = (total_issued - (approved_work + allowed_waste)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-            contractor_balances[c_id] += balance
+            
+            unit = material.unit
+            if unit not in contractor_balances[c_id]:
+                contractor_balances[c_id][unit] = Decimal('0')
+            contractor_balances[c_id][unit] += balance
 
     # ساخت خروجی نهایی به شکل لیست
     summary = []
-    for c_id, bal in contractor_balances.items():
+    for c_id, unit_bals in contractor_balances.items():
         contractor = contractors.get(c_id)
+        balances_json = {unit: float(val) for unit, val in unit_bals.items()}
         summary.append({
             'contractor_id': c_id,
             'contractor_name': contractor.get_full_name() if contractor else "ناشناس",
-            'total_balance': float(bal),
+            'balances': balances_json,
             'under_review_count': contractor_under_review[c_id],
         })
 

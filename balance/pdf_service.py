@@ -38,7 +38,7 @@ def persian_text(text):
     return bidi_text
 
 
-def get_balance_pdf_response(contractor_id=None, material_id=None, from_date=None, to_date=None):
+def get_balance_pdf_response(contractor_id=None, material_id=None, from_date=None, to_date=None, status_filter=None):
     """
     تولید گزارش PDF رسمی از موازنه متریال
     """
@@ -80,7 +80,13 @@ def get_balance_pdf_response(contractor_id=None, material_id=None, from_date=Non
     elements.append(Paragraph(persian_text(f"تاریخ تهیه گزارش: {current_date}"), header_style))
 
     if from_date or to_date:
-        date_str = f"بازه زمانی: {from_date or 'ابتدا'} تا {to_date or 'انتها'}"
+        try:
+            fd_str = jdatetime.date.fromgregorian(date=jdatetime.datetime.strptime(from_date, '%Y-%m-%d').date()).isoformat() if from_date else 'ابتدا'
+            td_str = jdatetime.date.fromgregorian(date=jdatetime.datetime.strptime(to_date, '%Y-%m-%d').date()).isoformat() if to_date else 'انتها'
+            date_str = f"بازه زمانی: {fd_str} تا {td_str}"
+        except Exception:
+            date_str = f"بازه زمانی: {from_date or 'ابتدا'} تا {to_date or 'انتها'}"
+            
         elements.append(Paragraph(persian_text(date_str), header_style))
     
     if contractor_id:
@@ -96,6 +102,16 @@ def get_balance_pdf_response(contractor_id=None, material_id=None, from_date=Non
             elements.append(Paragraph(persian_text(f"متریال: {material.name} ({material.get_unit_display()})"), header_style))
         except MaterialItem.DoesNotExist:
             pass
+            
+    if status_filter:
+        status_map = {
+            'debtor': 'بدهکار (مازاد دریافت)', 
+            'creditor': 'بستانکار (کسری)', 
+            'cleared': 'تسویه',
+            'under_review': 'در حال بررسی توسط دفتر فنی'
+        }
+        if status_filter in status_map:
+            elements.append(Paragraph(persian_text(f"وضعیت موازنه: {status_map[status_filter]}"), header_style))
             
     elements.append(Spacer(1, 20))
     
@@ -144,6 +160,16 @@ def get_balance_pdf_response(contractor_id=None, material_id=None, from_date=Non
                 
             waste = float(approved) * (float(material.waste_percentage) / 100)
             balance = float(approved) + waste - float(received)
+            
+            # فیلتر وضعیت موازنه
+            if status_filter == 'debtor' and balance <= 0:
+                continue
+            if status_filter == 'creditor' and balance >= 0:
+                continue
+            if status_filter == 'cleared' and balance != 0:
+                continue
+            if status_filter == 'under_review' and (approved != 0 or received == 0):
+                continue
             
             # فرمت اعداد
             def fmt(val):

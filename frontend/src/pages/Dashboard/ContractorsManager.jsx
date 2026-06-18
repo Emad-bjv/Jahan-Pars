@@ -3,7 +3,7 @@ import api from '../../services/api';
 import { useToast } from '../../contexts/ToastContext';
 import { SkeletonTable } from '../../components/Skeleton';
 import { AuthContext } from '../../contexts/AuthContext';
-import { toPersianDigits } from '../../utils/persianNumbers';
+import { toPersianDigits, formatPersianNumber, toPersianDate } from '../../utils/persianNumbers';
 
 /* ─── SVG Icons ──────────────────────────────────────────────── */
 const Icons = {
@@ -33,6 +33,11 @@ const ContractorsManager = () => {
   const [formData, setFormData] = useState({ first_name: '', last_name: '' });
   const [submitLoading, setSubmitLoading] = useState(false);
   const { showToast } = useToast();
+  
+  // Modal states
+  const [selectedContractor, setSelectedContractor] = useState(null);
+  const [contractorRequests, setContractorRequests] = useState([]);
+  const [loadingRequests, setLoadingRequests] = useState(false);
 
   const fetchContractors = async () => {
     setLoading(true);
@@ -43,6 +48,22 @@ const ContractorsManager = () => {
       console.error("Error fetching contractors", err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleContractorClick = async (contractor) => {
+    setSelectedContractor(contractor);
+    setLoadingRequests(true);
+    try {
+      const response = await api.get(`transactions/?contractor=${contractor.id}`);
+      let data = response.data.results || response.data;
+      data = [...data].sort((a, b) => b.id - a.id);
+      setContractorRequests(data);
+    } catch (err) {
+      console.error("Error fetching requests", err);
+      showToast('خطا در دریافت درخواست‌های پیمانکار', 'error');
+    } finally {
+      setLoadingRequests(false);
     }
   };
 
@@ -106,7 +127,7 @@ const ContractorsManager = () => {
           <p>افزودن، ویرایش و مشاهده لیست پیمانکاران پروژه</p>
         </div>
         <div className="page-header-actions" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          <button className="btn btn-secondary" onClick={downloadReport}>
+          <button className="btn btn-excel" onClick={downloadReport}>
             {Icons.download}
             دانلود لیست
           </button>
@@ -187,9 +208,14 @@ const ContractorsManager = () => {
                   </tr>
                 ) : (
                   contractors.map(c => (
-                    <tr key={c.id}>
+                    <tr 
+                      key={c.id} 
+                      onClick={() => handleContractorClick(c)} 
+                      style={{ cursor: 'pointer' }}
+                      className="hover-row"
+                    >
                       <td>
-                        <span className="badge badge-primary">#{c.id}</span>
+                        <span className="badge badge-primary">#{toPersianDigits(c.id)}</span>
                       </td>
                       <td style={{ fontWeight: 600 }}>{c.full_name}</td>
                       <td style={{ textAlign: 'center' }}>
@@ -200,7 +226,10 @@ const ContractorsManager = () => {
                           <button 
                             className="btn btn-ghost"
                             style={{ color: 'var(--danger-500)', padding: '6px 12px', fontSize: '0.8rem' }}
-                            onClick={() => handleDelete(c.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDelete(c.id);
+                            }}
                           >
                             {Icons.trash}
                             حذف
@@ -215,6 +244,103 @@ const ContractorsManager = () => {
           </div>
         )}
       </div>
+
+      {/* Contractor Details Modal */}
+      {selectedContractor && (
+        <div 
+          className="modal-overlay" 
+          style={{ backdropFilter: 'blur(5px)' }} 
+          onClick={() => setSelectedContractor(null)}
+        >
+          <div 
+            className="modal-container animate-in" 
+            onClick={e => e.stopPropagation()} 
+            style={{ maxWidth: '900px', width: '95%', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}
+          >
+            <div className="modal-header">
+              <h2>درخواست‌ها و تراکنش‌های {selectedContractor.full_name}</h2>
+              <button className="modal-close-btn" onClick={() => setSelectedContractor(null)}>✕</button>
+            </div>
+            <div className="modal-body" style={{ flex: 1, overflowY: 'auto', padding: '1rem' }}>
+              {loadingRequests ? (
+                <SkeletonTable rows={4} cols={4} />
+              ) : contractorRequests.length === 0 ? (
+                <div className="empty-state">
+                  <div className="empty-state-icon">📋</div>
+                  <div className="empty-state-title">هیچ درخواستی برای این پیمانکار ثبت نشده است</div>
+                </div>
+              ) : (
+                <div className="table-container">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>نوع</th>
+                        <th>متریال / مشخصات</th>
+                        <th>مقدار</th>
+                        <th>تاریخ</th>
+                        <th>حواله / بارنامه</th>
+                        <th>شماره قرارداد</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {contractorRequests.map(req => {
+                        const isOut = req.transaction_type === 'OUT';
+                        return (
+                          <tr key={req.id}>
+                            <td>
+                              <span className={`badge ${isOut ? 'badge-danger' : 'badge-success'}`}>
+                                {isOut ? 'خروج (دریافتی)' : 'ورود (مرجوعی)'}
+                              </span>
+                            </td>
+                            <td>
+                              <div style={{ fontWeight: '600' }}>{req.material_detail?.name || 'نامشخص'}</div>
+                              {req.material_detail?.specs && (
+                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                  {req.material_detail.specs}
+                                </div>
+                              )}
+                            </td>
+                            <td style={{ fontWeight: '600', direction: 'ltr', textAlign: 'right' }}>
+                              {formatPersianNumber(req.quantity, 2)} 
+                              <span style={{ fontSize: '0.8rem', fontWeight: 'normal', color: 'var(--text-muted)', marginRight: '4px' }}>
+                                {req.material_detail?.unit_display || req.material_detail?.unit || ''}
+                              </span>
+                            </td>
+                            <td>{toPersianDate(req.date)}</td>
+                            <td>
+                              {req.receipt_number && (
+                                <div style={{ marginBottom: '2px' }}>
+                                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>حواله:</span>{' '}
+                                  <span className="badge badge-primary">{toPersianDigits(req.receipt_number)}</span>
+                                </div>
+                              )}
+                              {req.bill_of_lading && (
+                                <div>
+                                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>بارنامه:</span>{' '}
+                                  <span className="badge badge-secondary">{toPersianDigits(req.bill_of_lading)}</span>
+                                </div>
+                              )}
+                              {!req.receipt_number && !req.bill_of_lading && '—'}
+                            </td>
+                            <td>
+                              {req.contract_number ? (
+                                <span className="badge badge-secondary">{toPersianDigits(req.contract_number)}</span>
+                              ) : '—'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            <div className="modal-footer" style={{ marginTop: 'auto' }}>
+              <button className="btn btn-secondary" onClick={() => setSelectedContractor(null)}>بستن</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

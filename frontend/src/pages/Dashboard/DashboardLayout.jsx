@@ -1,6 +1,7 @@
 import React, { useContext, useState, useCallback, useEffect } from 'react';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { AuthContext } from '../../contexts/AuthContext';
+import UserProfileModal from '../../components/UserProfileModal';
 
 /* ─── SVG Icons ────────────────────────────────────────────────── */
 const Icons = {
@@ -62,6 +63,10 @@ const DashboardLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    return localStorage.getItem('sidebar-collapsed') === 'true';
+  });
 
   // Close sidebar on route change (when user taps a nav link on mobile)
   useEffect(() => {
@@ -81,6 +86,14 @@ const DashboardLayout = () => {
   const closeSidebar = useCallback(() => {
     setSidebarOpen(false);
   }, []);
+
+  const toggleCollapse = () => {
+    setIsCollapsed(prev => {
+      const next = !prev;
+      localStorage.setItem('sidebar-collapsed', next.toString());
+      return next;
+    });
+  };
 
   const getInitials = (name) => {
     if (!name) return '؟';
@@ -126,11 +139,33 @@ const DashboardLayout = () => {
       />
 
       {/* Sidebar */}
-      <aside className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}>
+      <aside className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''} ${isCollapsed ? 'collapsed' : ''}`}>
+        {/* Toggle Collapse Button (Desktop only) */}
+        <button 
+          className="sidebar-toggle-btn" 
+          onClick={toggleCollapse}
+          title={isCollapsed ? "بزرگ کردن منو" : "کوچک کردن منو"}
+        >
+          <svg 
+            width="10" 
+            height="10" 
+            viewBox="0 0 24 24" 
+            fill="none" 
+            stroke="currentColor" 
+            strokeWidth="3" 
+            strokeLinecap="round" 
+            strokeLinejoin="round"
+            style={{ transform: isCollapsed ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.3s ease' }}
+          >
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+        </button>
+
         {/* Brand */}
         <div className="sidebar-brand">
-          <h2>جهان‌پارس</h2>
-          <p>سیستم موازنه متریال</p>
+          <h2 className="brand-full">جهان‌پارس</h2>
+          <h2 className="brand-mini">ج‌‌پ</h2>
+          <p className="brand-full">سیستم موازنه متریال</p>
         </div>
 
         {/* Navigation */}
@@ -141,6 +176,7 @@ const DashboardLayout = () => {
               to={item.to}
               end={item.end}
               className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+              title={isCollapsed ? item.label : ''}
             >
               <span className="nav-link-icon">{item.icon}</span>
               <span className="nav-link-text">{item.label}</span>
@@ -153,12 +189,17 @@ const DashboardLayout = () => {
           {/* Notification Bell moved to top of site */}
 
           {/* User Info */}
-          <div className={`sidebar-user ${getRoleClass(user)}`}>
+          <div 
+            className={`sidebar-user ${getRoleClass(user)}`}
+            style={{ cursor: 'pointer' }}
+            onClick={() => setIsProfileModalOpen(true)}
+            title="مشاهده اطلاعات حساب کاربری"
+          >
             <div className="sidebar-user-avatar">
-              {getInitials(user?.username)}
+              {getInitials(user?.full_name || user?.username)}
             </div>
             <div className="sidebar-user-info">
-              <div className="sidebar-user-name">{user?.username}</div>
+              <div className="sidebar-user-name">{user?.full_name || user?.username}</div>
               <div className="sidebar-user-role">
                 {user?.is_superuser ? 'سوپر ادمین' : roleLabels[user?.role] || user?.role}
               </div>
@@ -170,19 +211,21 @@ const DashboardLayout = () => {
             <button
               className="btn btn-secondary"
               onClick={() => { setSidebarOpen(false); navigate('/warehouse'); }}
-              style={{ width: '100%', marginBottom: '0.5rem' }}
+              style={{ width: '100%', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem', justifyContent: isCollapsed ? 'center' : 'flex-start' }}
+              title={isCollapsed ? 'پرتال انبار' : ''}
             >
-              <span className="nav-link-icon">{Icons.warehouse}</span>
-              پرتال انبار
+              <span className="nav-link-icon" style={{ display: 'inline-flex', alignItems: 'center' }}>{Icons.warehouse}</span>
+              <span className="nav-link-text">پرتال انبار</span>
             </button>
           )}
           <button
             className="btn btn-danger"
             onClick={handleLogout}
-            style={{ width: '100%' }}
+            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '0.5rem', justifyContent: isCollapsed ? 'center' : 'flex-start' }}
+            title={isCollapsed ? 'خروج از حساب' : ''}
           >
-            {Icons.logout}
-            خروج از حساب
+            <span className="nav-link-icon" style={{ display: 'inline-flex', alignItems: 'center' }}>{Icons.logout}</span>
+            <span className="nav-link-text">خروج از حساب</span>
           </button>
         </div>
       </aside>
@@ -195,6 +238,14 @@ const DashboardLayout = () => {
       }}>
         <Outlet />
       </main>
+
+      {/* User Profile Modal */}
+      {isProfileModalOpen && (
+        <UserProfileModal 
+          user={user} 
+          onClose={() => setIsProfileModalOpen(false)} 
+        />
+      )}
     </div>
   );
 };

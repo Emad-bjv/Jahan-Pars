@@ -8,6 +8,8 @@ const TransactionList = ({ refreshTrigger }) => {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedTx, setSelectedTx] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterType, setFilterType] = useState('ALL');
 
   useEffect(() => {
     const fetchTransactions = async () => {
@@ -36,10 +38,53 @@ const TransactionList = ({ refreshTrigger }) => {
     );
   }
 
+  const filteredTransactions = transactions.filter(tx => {
+    if (filterType !== 'ALL' && tx.transaction_type !== filterType) return false;
+    
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      const materialName = (tx.material_detail?.name || '').toLowerCase();
+      const contractorName = (tx.contractor_detail?.full_name || '').toLowerCase();
+      const bill = (tx.bill_of_lading || '').toLowerCase();
+      const contract = (tx.contract_number || '').toLowerCase();
+      
+      if (!materialName.includes(term) && 
+          !contractorName.includes(term) && 
+          !bill.includes(term) && 
+          !contract.includes(term)) {
+        return false;
+      }
+    }
+    return true;
+  });
+
   return (
-    <div className="section-panel" style={{ padding: 0, overflow: 'hidden' }}>
-      <div className="table-container">
-        <table className="table">
+    <div className="section-panel" style={{ padding: 0, overflow: 'hidden', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      
+      {/* Search and Filter UI */}
+      <div style={{ padding: '1rem', borderBottom: '1px solid var(--border-color)', display: 'flex', gap: '1rem', backgroundColor: 'var(--bg-surface-solid)' }}>
+        <input 
+          type="text" 
+          className="form-control" 
+          placeholder="جستجو (متریال، پیمانکار، شماره قرارداد، بارنامه...)" 
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          style={{ flex: 1 }}
+        />
+        <select 
+          className="form-control" 
+          value={filterType} 
+          onChange={(e) => setFilterType(e.target.value)}
+          style={{ width: '200px' }}
+        >
+          <option value="ALL">همه تراکنش‌ها</option>
+          <option value="IN">ورود به انبار</option>
+          <option value="OUT">خروج از انبار</option>
+        </select>
+      </div>
+
+      <div className="table-container" style={{ flex: 1, maxHeight: '600px', overflowY: 'auto', borderTopLeftRadius: 0, borderTopRightRadius: 0, borderTop: 'none' }}>
+        <table className="table table-lg">
           <thead>
             <tr>
               <th>نوع</th>
@@ -50,7 +95,7 @@ const TransactionList = ({ refreshTrigger }) => {
             </tr>
           </thead>
           <tbody>
-            {transactions.length === 0 ? (
+            {filteredTransactions.length === 0 ? (
               <tr>
                 <td colSpan="5">
                   <div className="empty-state">
@@ -61,7 +106,7 @@ const TransactionList = ({ refreshTrigger }) => {
                 </td>
               </tr>
             ) : (
-              transactions.map((tx) => (
+              filteredTransactions.map((tx) => (
                 <tr key={tx.id} onClick={() => setSelectedTx(tx)} style={{ cursor: 'pointer' }}>
                   <td>
                     <span className={`badge ${tx.transaction_type === 'IN' ? 'badge-success' : 'badge-warning'}`}>
@@ -78,7 +123,14 @@ const TransactionList = ({ refreshTrigger }) => {
                       )}
                     </span>
                   </td>
-                  <td style={{ fontWeight: 600 }}>{tx.material_detail?.name}</td>
+                  <td style={{ fontWeight: 600 }}>
+                    {tx.material_detail?.name}
+                    {tx.material_detail && (tx.material_detail.size || tx.material_detail.thickness || tx.material_detail.material_type) ? (
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.82rem', marginRight: '6px', fontWeight: 400 }}>
+                        ({[tx.material_detail.size, tx.material_detail.thickness, tx.material_detail.material_type].filter(Boolean).join(' / ')})
+                      </span>
+                    ) : null}
+                  </td>
                   <td>
                     <span style={{ fontWeight: 700, color: 'var(--primary-500)' }}>{formatPersianNumber(tx.quantity, 2)}</span>
                     <span style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginRight: '4px' }}>{tx.material_detail?.unit_display}</span>
@@ -175,6 +227,37 @@ const TransactionList = ({ refreshTrigger }) => {
                       <span className="modal-detail-value">{selectedTx.contract_subject || '—'}</span>
                     </div>
                   </>
+                )}
+
+                {/* Scanned Document Preview & Download */}
+                {(selectedTx.bill_of_lading_image || selectedTx.exit_document_image) && (
+                  <div className="modal-detail-item" style={{ gridColumn: '1 / -1', borderTop: '1px dashed var(--border-color)', paddingTop: '1.2rem', marginTop: '0.5rem' }}>
+                    <span className="modal-detail-label" style={{ fontSize: '0.95rem', color: 'var(--primary-500)', marginBottom: '0.8rem', fontWeight: 600 }}>
+                      سند اسکن شده ({selectedTx.transaction_type === 'IN' ? 'عکس بارنامه' : 'برگه خروج'})
+                    </span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', alignItems: 'center' }}>
+                      <div className="scan-thumb-wrap" style={{ maxWidth: '380px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', background: '#1e1e2e' }}>
+                        <img 
+                          src={selectedTx.transaction_type === 'IN' ? selectedTx.bill_of_lading_image : selectedTx.exit_document_image} 
+                          alt="document scan" 
+                          style={{ width: '100%', maxHeight: '300px', objectFit: 'contain', display: 'block' }} 
+                        />
+                      </div>
+                      <a 
+                        href={selectedTx.transaction_type === 'IN' ? selectedTx.bill_of_lading_image : selectedTx.exit_document_image} 
+                        download={`scan-${selectedTx.transaction_type === 'IN' ? 'lading' : 'exit'}-${selectedTx.id}.jpg`}
+                        className="btn btn-excel" 
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', padding: '0.45rem 1rem', fontSize: '0.82rem', borderRadius: 'var(--radius-md)', textDecoration: 'none' }}
+                      >
+                        <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                          <polyline points="7 10 12 15 17 10"/>
+                          <line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                        <span>دانلود سند اسکن شده</span>
+                      </a>
+                    </div>
+                  </div>
                 )}
 
                 {selectedTx.remarks && (

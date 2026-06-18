@@ -164,9 +164,18 @@ class ContractorViewSet(AuditMixin, viewsets.ModelViewSet):
         ).order_by('first_name', 'last_name')
 
     def get_permissions(self):
-        if self.action in ('list', 'retrieve'):
+        if self.action in ('list', 'retrieve', 'received_materials'):
             return [IsAuthenticated(), IsTechnicalOfficeOrWarehouse()]
         return [IsAuthenticated(), IsTechnicalReadOnlyOrAdmin()]
+
+    @action(detail=True, methods=['get'], url_path='received-materials')
+    def received_materials(self, request, pk=None):
+        """لیست آیدی متریال‌هایی که این پیمانکار تحویل گرفته است"""
+        material_ids = WarehouseTransaction.objects.filter(
+            contractor_id=pk,
+            transaction_type='OUT'
+        ).values_list('material_id', flat=True).distinct()
+        return Response(list(material_ids))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -208,6 +217,36 @@ class MaterialItemViewSet(AuditMixin, viewsets.ModelViewSet):
                 qs = qs.filter(unit=unit_upper)
 
         return qs
+
+    def create(self, request, *args, **kwargs):
+        data = request.data
+        name = data.get('name', '').strip() if data.get('name') else ''
+        work_category = data.get('work_category')
+        material_type = data.get('material_type', '').strip() if data.get('material_type') else ''
+        size = data.get('size', '').strip() if data.get('size') else ''
+        thickness = data.get('thickness', '').strip() if data.get('thickness') else ''
+        unit = data.get('unit', '').strip() if data.get('unit') else ''
+
+        try:
+            work_category_id = int(work_category) if work_category else None
+        except (ValueError, TypeError):
+            work_category_id = None
+
+        # Check if a material with the exact same specs already exists
+        existing = MaterialItem.objects.filter(
+            name__iexact=name,
+            work_category_id=work_category_id,
+            material_type__iexact=material_type,
+            size__iexact=size,
+            thickness__iexact=thickness,
+            unit=unit
+        ).first()
+
+        if existing:
+            serializer = self.get_serializer(existing)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        return super().create(request, *args, **kwargs)
 
     def get_permissions(self):
         if self.action in ('list', 'retrieve'):
@@ -263,6 +302,28 @@ class WarehouseTransactionViewSet(AuditMixin, viewsets.ModelViewSet):
             qs = qs.filter(date__lte=to_date)
 
         return qs
+
+    @action(detail=False, methods=['get'], url_path='contractor-contracts')
+    def contractor_contracts(self, request):
+        """
+        لیست قراردادهای یک پیمانکار و متریال را برمی‌گرداند.
+        """
+        contractor_id = request.query_params.get('contractor_id')
+        material_id = request.query_params.get('material_id')
+
+        if not contractor_id or not material_id:
+            return Response([])
+
+        qs = WarehouseTransaction.objects.filter(
+            contractor_id=contractor_id,
+            material_id=material_id
+        ).exclude(
+            contract_number__isnull=True
+        ).exclude(
+            contract_number=''
+        ).values('contract_number', 'contract_subject').distinct()
+
+        return Response(list(qs))
 
     def destroy(self, request, *args, **kwargs):
         import jdatetime
@@ -406,6 +467,7 @@ def download_balance_pdf(request):
     material_id   = request.GET.get('material_id')
     from_date     = request.GET.get('from_date')
     to_date       = request.GET.get('to_date')
+    status_filter = request.GET.get('status')
 
     if contractor_id and contractor_id.isdigit():
         contractor_id = int(contractor_id)
@@ -416,7 +478,8 @@ def download_balance_pdf(request):
         contractor_id=contractor_id, 
         material_id=material_id,
         from_date=from_date,
-        to_date=to_date
+        to_date=to_date,
+        status_filter=status_filter
     )
 
 
@@ -445,7 +508,7 @@ def download_warehouse_inventory(request):
 def current_user(request):
     """
     دریافت اطلاعات کاربر لاگین شده فعلی (برای پنل فرانت‌اند).
-    برگرداندن فیلدهای پایه مانند نقش کاربر (role).
+    برگرداندن فیلدهای پایه و مشخصات پروفایل کاربر.
     """
     user = request.user
     return Response({
@@ -453,6 +516,11 @@ def current_user(request):
         'username': user.username,
         'role': getattr(user, 'role', 'UNKNOWN'),
         'is_superuser': user.is_superuser,
+        'first_name': user.first_name,
+        'last_name': user.last_name,
+        'full_name': user.get_full_name() or user.username,
+        'email': user.email,
+        'date_joined': user.date_joined.isoformat() if user.date_joined else None,
     })
 
 
@@ -463,15 +531,26 @@ def dashboard_summary(request):
     تولید دیتای داشبورد برای فرانت‌اند (مخصوص دفتر فنی).
     شامل مجموع ورودی، خروجی، کارهای تایید شده و موازنه پیمانکاران.
     """
-    total_in = WarehouseTransaction.objects.filter(transaction_type='IN').aggregate(Sum('quantity'))['quantity__sum'] or 0
-    total_out = WarehouseTransaction.objects.filter(transaction_type='OUT').aggregate(Sum('quantity'))['quantity__sum'] or 0
-    total_approved = TechnicalOfficeApproval.objects.aggregate(Sum('approved_quantity'))['approved_quantity__sum'] or 0
+    total_in_qs = WarehouseTransaction.objects.filter(transaction_type='IN') \
+        .values('material__unit') \
+        .annotate(total=Sum('quantity'))
+    total_in = {item['material__unit']: float(item['total']) for item in total_in_qs}
+
+    total_out_qs = WarehouseTransaction.objects.filter(transaction_type='OUT') \
+        .values('material__unit') \
+        .annotate(total=Sum('quantity'))
+    total_out = {item['material__unit']: float(item['total']) for item in total_out_qs}
+
+    total_approved_qs = TechnicalOfficeApproval.objects \
+        .values('material__unit') \
+        .annotate(total=Sum('approved_quantity'))
+    total_approved = {item['material__unit']: float(item['total']) for item in total_approved_qs}
 
     summary = get_contractors_balance_summary()
     return Response({
-        'total_in': float(total_in),
-        'total_out': float(total_out),
-        'total_approved': float(total_approved),
+        'total_in': total_in,
+        'total_out': total_out,
+        'total_approved': total_approved,
         'contractors': summary
     })
 
@@ -661,3 +740,160 @@ def audit_logs_list(request):
         'count': len(serializer.data),
         'results': serializer.data,
     })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def contractor_outbound_summary(request):
+    """
+    تولید دیتای خروجی انبار به تفکیک پیمانکار، کالا و مشخصات فنی (سایز، جنس، ضخامت)
+    """
+    from .models import WarehouseTransaction
+
+    # کوئری تجمیعی روی دیتابیس برای دریافت مجموع خروجی‌ها
+    qs = WarehouseTransaction.objects.filter(transaction_type='OUT') \
+        .values(
+            'contractor_id',
+            'contractor__first_name',
+            'contractor__last_name',
+            'material__name',
+            'material__size',
+            'material__material_type',
+            'material__thickness',
+            'material__unit',
+        ) \
+        .annotate(total_qty=Sum('quantity')) \
+        .order_by('contractor__first_name', 'contractor__last_name', 'material__name')
+
+    data = []
+    for item in qs:
+        first_name = item['contractor__first_name'] or ''
+        last_name = item['contractor__last_name'] or ''
+        full_name = f"{first_name} {last_name}".strip() or "پیمانکار ناشناس"
+        
+        data.append({
+            'contractor_id': item['contractor_id'],
+            'contractor_name': full_name,
+            'material_name': item['material__name'],
+            'size': item['material__size'] or '',
+            'material_type': item['material__material_type'] or '',
+            'thickness': item['material__thickness'] or '',
+            'unit': item['material__unit'] or '',
+            'total_qty': float(item['total_qty'] or 0),
+        })
+
+    return Response(data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def technical_approval_summary(request):
+    """
+    تولید دیتای تاییدیه‌های دفتر فنی به تفکیک پیمانکار، متریال، سایز، جنس و ضخامت،
+    به همراه مقدار تحویلی (OUT transactions) و مقدار تایید شده (approvals).
+    """
+    from .models import WarehouseTransaction, TechnicalOfficeApproval
+    from django.db.models import Sum
+
+    # ۱. تجمیع مقادیر تحویلی (خروجی انبار)
+    delivered_qs = WarehouseTransaction.objects.filter(transaction_type='OUT') \
+        .values(
+            'contractor_id',
+            'contractor__first_name',
+            'contractor__last_name',
+            'material__id',
+            'material__name',
+            'material__size',
+            'material__material_type',
+            'material__thickness',
+            'material__unit',
+            'material__waste_percentage',
+        ) \
+        .annotate(total_delivered=Sum('quantity'))
+
+    # ۲. تجمیع مقادیر تایید شده (دفتر فنی)
+    approved_qs = TechnicalOfficeApproval.objects.all() \
+        .values(
+            'contractor_id',
+            'contractor__first_name',
+            'contractor__last_name',
+            'material__id',
+            'material__name',
+            'material__size',
+            'material__material_type',
+            'material__thickness',
+            'material__unit',
+            'material__waste_percentage',
+        ) \
+        .annotate(total_approved=Sum('approved_quantity'))
+
+    # ادغام اطلاعات بر اساس کلید یکتا
+    merged = {}
+
+    for item in delivered_qs:
+        c_id = item['contractor_id']
+        m_id = item['material__id']
+        if not c_id or not m_id:
+            continue
+        first_name = item['contractor__first_name'] or ''
+        last_name = item['contractor__last_name'] or ''
+        full_name = f"{first_name} {last_name}".strip() or "پیمانکار ناشناس"
+        
+        key = (c_id, m_id, item['material__size'] or '', item['material__material_type'] or '', item['material__thickness'] or '', item['material__unit'] or '')
+        merged[key] = {
+            'contractor_id': c_id,
+            'contractor_name': full_name,
+            'material_id': m_id,
+            'material_name': item['material__name'],
+            'size': item['material__size'] or '',
+            'material_type': item['material__material_type'] or '',
+            'thickness': item['material__thickness'] or '',
+            'unit': item['material__unit'] or '',
+            'waste_percentage': float(item['material__waste_percentage'] or 0),
+            'total_delivered': float(item['total_delivered'] or 0),
+            'total_approved': 0.0,
+        }
+
+    for item in approved_qs:
+        c_id = item['contractor_id']
+        m_id = item['material__id']
+        if not c_id or not m_id:
+            continue
+        first_name = item['contractor__first_name'] or ''
+        last_name = item['contractor__last_name'] or ''
+        full_name = f"{first_name} {last_name}".strip() or "پیمانکار ناشناس"
+
+        key = (c_id, m_id, item['material__size'] or '', item['material__material_type'] or '', item['material__thickness'] or '', item['material__unit'] or '')
+        
+        if key in merged:
+            merged[key]['total_approved'] = float(item['total_approved'] or 0)
+        else:
+            merged[key] = {
+                'contractor_id': c_id,
+                'contractor_name': full_name,
+                'material_id': m_id,
+                'material_name': item['material__name'],
+                'size': item['material__size'] or '',
+                'material_type': item['material__material_type'] or '',
+                'thickness': item['material__thickness'] or '',
+                'unit': item['material__unit'] or '',
+                'waste_percentage': float(item['material__waste_percentage'] or 0),
+                'total_delivered': 0.0,
+                'total_approved': float(item['total_approved'] or 0),
+            }
+
+    result = list(merged.values())
+    result.sort(key=lambda x: (x['contractor_name'], x['material_name']))
+    return Response(result)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsTechnicalOffice])
+def global_balance_rows(request):
+    """
+    دریافت ردیف‌های گزارش موازنه متریال کل کارگاه برای نمایش در داشبورد فرانت‌اند.
+    """
+    from .services import get_global_material_balance_rows_data
+    rows = get_global_material_balance_rows_data()
+    return Response(rows)
+

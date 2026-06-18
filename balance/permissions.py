@@ -21,6 +21,7 @@ class _IsAuthenticatedWithRole(BasePermission):
     و فیلد role دارد. سایر کلاس‌ها از این ارث می‌برند.
     """
     required_role: str = ""  # زیرکلاس باید این را تنظیم کند
+    required_group: str = "" # زیرکلاس باید این را تنظیم کند
 
     def has_permission(self, request, view):
         # کاربر باید لاگین کرده و فعال باشد
@@ -31,8 +32,12 @@ class _IsAuthenticatedWithRole(BasePermission):
         # سوپریوزر دسترسی کامل دارد
         if request.user.is_superuser:
             return True
-        # بررسی نقش
-        return getattr(request.user, 'role', None) == self.required_role
+            
+        # بررسی نقش و گروه
+        has_role = getattr(request.user, 'role', None) == self.required_role
+        has_group = request.user.groups.filter(name=self.required_group).exists() if self.required_group else False
+        
+        return has_role or has_group
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -55,6 +60,7 @@ class IsTechnicalOffice(_IsAuthenticatedWithRole):
     """
     message = "دسترسی محدود به اعضای دفتر فنی است."
     required_role = "TECHNICAL"
+    required_group = "TECHNICAL_GROUP"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -75,6 +81,7 @@ class IsWarehouseKeeper(_IsAuthenticatedWithRole):
     """
     message = "دسترسی محدود به انباردار است."
     required_role = "WAREHOUSE"
+    required_group = "WAREHOUSE_GROUP"
 
     def has_object_permission(self, request, view, obj):
         """
@@ -108,13 +115,15 @@ class IsTechnicalOfficeOrWarehouse(BasePermission):
             return True
 
         role = getattr(request.user, 'role', None)
+        is_technical = role == 'TECHNICAL' or request.user.groups.filter(name='TECHNICAL_GROUP').exists()
+        is_warehouse = role == 'WAREHOUSE' or request.user.groups.filter(name='WAREHOUSE_GROUP').exists()
 
         # دفتر فنی: دسترسی کامل
-        if role == 'TECHNICAL':
+        if is_technical:
             return True
 
         # انباردار: فقط خواندن
-        if role == 'WAREHOUSE':
+        if is_warehouse:
             return request.method in SAFE_METHODS
 
         return False
@@ -138,7 +147,7 @@ class CanDownloadBalanceReport(BasePermission):
             return False
         if request.user.is_superuser:
             return True
-        return getattr(request.user, 'role', None) == 'TECHNICAL'
+        return getattr(request.user, 'role', None) == 'TECHNICAL' or request.user.groups.filter(name='TECHNICAL_GROUP').exists()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -156,7 +165,7 @@ class CanDownloadWarehouseReport(BasePermission):
             return False
         if request.user.is_superuser:
             return True
-        return getattr(request.user, 'role', None) == 'WAREHOUSE'
+        return getattr(request.user, 'role', None) == 'WAREHOUSE' or request.user.groups.filter(name='WAREHOUSE_GROUP').exists()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -180,9 +189,10 @@ class IsTechnicalReadOnlyOrAdmin(BasePermission):
             return True
             
         role = getattr(request.user, 'role', None)
+        is_technical = role == 'TECHNICAL' or request.user.groups.filter(name='TECHNICAL_GROUP').exists()
         
         # دفتر فنی: فقط خواندن مجاز است
-        if role == 'TECHNICAL':
+        if is_technical:
             return request.method in SAFE_METHODS
             
         return False

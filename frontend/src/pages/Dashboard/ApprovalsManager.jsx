@@ -5,6 +5,7 @@ import { SkeletonTable } from '../../components/Skeleton';
 import JalaliDatePicker from '../../components/JalaliDatePicker';
 import { formatPersianNumber, toPersianDigits } from '../../utils/persianNumbers';
 import Select from 'react-select';
+import CreatableSelect from 'react-select/creatable';
 
 const selectStyles = {
   control: (base) => ({
@@ -22,6 +23,7 @@ const selectStyles = {
     border: '1px solid var(--border-color)',
     zIndex: 9999
   }),
+  menuPortal: (base) => ({ ...base, zIndex: 9999 }),
   option: (base, state) => ({
     ...base,
     background: state.isFocused ? 'var(--bg-body)' : 'transparent',
@@ -30,11 +32,11 @@ const selectStyles = {
   }),
   singleValue: (base) => ({
     ...base,
-    color: 'var(--text-main)'
+    color: 'var(--input-text-color)'
   }),
   input: (base) => ({
     ...base,
-    color: 'var(--text-main)'
+    color: 'var(--input-text-color)'
   })
 };
 
@@ -71,6 +73,12 @@ const ApprovalsManager = () => {
   const [loading, setLoading] = useState(false);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [liveReceived, setLiveReceived] = useState(null);
+  const [availableContracts, setAvailableContracts] = useState([]);
+  const [allowedMaterialIds, setAllowedMaterialIds] = useState(null);
+  
+  const [isFormOpen, setIsFormOpen] = useState(true);
+  const [isListOpen, setIsListOpen] = useState(true);
+  
   const { showToast } = useToast();
 
   const fetchData = async () => {
@@ -112,6 +120,40 @@ const ApprovalsManager = () => {
     fetchLiveReceived();
   }, [formData.contractor, formData.material]);
 
+  useEffect(() => {
+    const fetchContracts = async () => {
+      if (formData.contractor && formData.material) {
+        try {
+          const res = await api.get(`transactions/contractor-contracts/?contractor_id=${formData.contractor}&material_id=${formData.material}`);
+          setAvailableContracts(res.data);
+        } catch (err) {
+          console.error("Error fetching contracts", err);
+          setAvailableContracts([]);
+        }
+      } else {
+        setAvailableContracts([]);
+      }
+    };
+    fetchContracts();
+  }, [formData.contractor, formData.material]);
+
+  useEffect(() => {
+    const fetchAllowedMaterials = async () => {
+      if (formData.contractor) {
+        try {
+          const res = await api.get(`contractors/${formData.contractor}/received-materials/`);
+          setAllowedMaterialIds(res.data);
+        } catch (err) {
+          console.error("Error fetching allowed materials", err);
+          setAllowedMaterialIds(null);
+        }
+      } else {
+        setAllowedMaterialIds(null);
+      }
+    };
+    fetchAllowedMaterials();
+  }, [formData.contractor]);
+
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
@@ -150,16 +192,20 @@ const ApprovalsManager = () => {
     }
   };
 
+  const filteredMaterials = allowedMaterialIds 
+    ? materials.filter(m => allowedMaterialIds.includes(m.id))
+    : materials;
+
   return (
-    <div style={{ maxWidth: '1400px', margin: '0 auto', paddingTop: '0.5rem' }}>
+    <div style={{ maxWidth: '1400px', margin: '0 auto', paddingTop: '0.5rem', display: 'flex', flexDirection: 'column', minHeight: 'calc(100vh - 2.5rem)' }}>
       {/* Header */}
-      <div className="page-header animate-in">
+      <div className="page-header animate-in" style={{ flexShrink: 0 }}>
         <div>
           <h1 className="gradient-text">مدیریت تاییدیه‌های کارکرد</h1>
           <p>ثبت مقادیر تایید شده دفتر فنی برای پیمانکاران جهت محاسبه اتوماتیک پرتی و کسری</p>
         </div>
         <div className="page-header-actions" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          <button className="btn btn-secondary" onClick={downloadReport}>
+          <button className="btn btn-excel" onClick={downloadReport}>
             {Icons.download}
             دانلود تاییدیه‌ها
           </button>
@@ -167,12 +213,25 @@ const ApprovalsManager = () => {
       </div>
 
       {/* Form Section */}
-      <div className="section-panel animate-in animate-in-delay-1" style={{ marginBottom: '1.5rem', position: 'relative', zIndex: 10 }}>
-        <div className="section-title">
+      <div className="section-panel animate-in animate-in-delay-1" style={{ marginBottom: '1.5rem', position: 'relative', zIndex: 10, flexShrink: 0 }}>
+        <div 
+          className="section-title" 
+          style={{ cursor: 'pointer', userSelect: 'none', marginBottom: isFormOpen ? '1rem' : '0' }}
+          onClick={() => setIsFormOpen(!isFormOpen)}
+        >
           <div className="section-title-icon">{Icons.plus}</div>
           ثبت تاییدیه جدید
+          <svg 
+            width="18" height="18" 
+            viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" 
+            style={{ transform: isFormOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.3s ease', marginRight: 'auto' }}
+          >
+            <path d="M19 9l-7 7-7-7" />
+          </svg>
         </div>
-        <form onSubmit={handleSubmit} className="grid grid-cols-3">
+        <div className={`collapse-wrapper ${isFormOpen ? 'open' : 'closed'}`}>
+          <div className="collapse-inner">
+            <form onSubmit={handleSubmit} className="grid grid-cols-3">
           
           <div className="form-group">
             <label className="form-label">پیمانکار</label>
@@ -180,9 +239,16 @@ const ApprovalsManager = () => {
               styles={selectStyles}
               placeholder="انتخاب پیمانکار..."
               isClearable
+              menuPortalTarget={document.body}
               options={contractors.map(c => ({ value: c.id, label: c.full_name }))}
               value={formData.contractor ? { value: formData.contractor, label: contractors.find(c => c.id === parseInt(formData.contractor))?.full_name } : null}
-              onChange={selected => setFormData({...formData, contractor: selected ? selected.value : ''})}
+              onChange={selected => setFormData({
+                ...formData, 
+                contractor: selected ? selected.value : '',
+                material: '',
+                contract_number: '',
+                contract_subject: ''
+              })}
             />
           </div>
           
@@ -192,8 +258,19 @@ const ApprovalsManager = () => {
               styles={selectStyles}
               placeholder="انتخاب متریال..."
               isClearable
-              options={materials.map(m => ({ value: m.id, label: `${m.name} (${m.unit_display})` }))}
-              value={formData.material ? { value: formData.material, label: materials.find(m => m.id === parseInt(formData.material))?.name + ' (' + materials.find(m => m.id === parseInt(formData.material))?.unit_display + ')' } : null}
+              menuPortalTarget={document.body}
+              options={filteredMaterials.map(m => {
+                const specs = [m.size, m.thickness, m.material_type].filter(Boolean).join(' / ');
+                const label = specs ? `${m.name} (${specs}) (${m.unit_display})` : `${m.name} (${m.unit_display})`;
+                return { value: m.id, label };
+              })}
+              value={formData.material ? (() => {
+                const m = materials.find(x => x.id === parseInt(formData.material));
+                if (!m) return null;
+                const specs = [m.size, m.thickness, m.material_type].filter(Boolean).join(' / ');
+                const label = specs ? `${m.name} (${specs}) (${m.unit_display})` : `${m.name} (${m.unit_display})`;
+                return { value: m.id, label };
+              })() : null}
               onChange={selected => setFormData({...formData, material: selected ? selected.value : ''})}
             />
             {liveReceived !== null && (
@@ -211,12 +288,50 @@ const ApprovalsManager = () => {
 
           <div className="form-group">
             <label className="form-label">شماره قرارداد</label>
-            <input type="text" name="contract_number" className="form-control" value={formData.contract_number} onChange={handleChange} />
+            <CreatableSelect 
+              styles={selectStyles}
+              placeholder="انتخاب یا ثبت جدید..."
+              isClearable
+              menuPortalTarget={document.body}
+              options={availableContracts.map(c => ({ value: c.contract_number, label: c.contract_number, subject: c.contract_subject }))}
+              value={formData.contract_number ? { value: formData.contract_number, label: formData.contract_number } : null}
+              onChange={selected => {
+                if (selected) {
+                  setFormData({
+                    ...formData, 
+                    contract_number: selected.value,
+                    contract_subject: selected.subject || formData.contract_subject // auto-fill subject if exists
+                  });
+                } else {
+                  setFormData({...formData, contract_number: ''});
+                }
+              }}
+              formatCreateLabel={(inputValue) => `ثبت قرارداد جدید: "${inputValue}"`}
+            />
           </div>
 
           <div className="form-group">
             <label className="form-label">موضوع قرارداد</label>
-            <input type="text" name="contract_subject" className="form-control" value={formData.contract_subject} onChange={handleChange} />
+            <CreatableSelect 
+              styles={selectStyles}
+              placeholder="انتخاب یا ثبت موضوع..."
+              isClearable
+              menuPortalTarget={document.body}
+              options={availableContracts.filter(c => c.contract_subject).map(c => ({ value: c.contract_subject, label: c.contract_subject, number: c.contract_number }))}
+              value={formData.contract_subject ? { value: formData.contract_subject, label: formData.contract_subject } : null}
+              onChange={selected => {
+                if (selected) {
+                  setFormData({
+                    ...formData, 
+                    contract_subject: selected.value,
+                    contract_number: selected.number || formData.contract_number
+                  });
+                } else {
+                  setFormData({...formData, contract_subject: ''});
+                }
+              }}
+              formatCreateLabel={(inputValue) => `ثبت موضوع جدید: "${inputValue}"`}
+            />
           </div>
 
           <div className="form-group">
@@ -238,33 +353,48 @@ const ApprovalsManager = () => {
           </div>
         </form>
       </div>
+    </div>
+  </div>
 
       {/* List Section */}
-      <div className="section-panel animate-in animate-in-delay-2" style={{ position: 'relative', zIndex: 1 }}>
-        <div className="section-title">
+      <div className="section-panel animate-in animate-in-delay-2" style={{ position: 'relative', zIndex: 1, flex: isListOpen ? 1 : 'none', display: 'flex', flexDirection: 'column', overflow: 'hidden', transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)' }}>
+        <div 
+          className="section-title" 
+          style={{ flexShrink: 0, cursor: 'pointer', userSelect: 'none', marginBottom: isListOpen ? '1rem' : '0' }}
+          onClick={() => setIsListOpen(!isListOpen)}
+        >
           <div className="section-title-icon">{Icons.check}</div>
           لیست تاییدیه‌ها
-          {!loading && <span style={{ marginRight: 'auto', fontSize: '0.8rem', color: 'var(--text-dim)', fontWeight: 500 }}>{toPersianDigits(approvals.length)} تاییدیه</span>}
+          {!loading && <span style={{ marginRight: '1rem', fontSize: '0.8rem', color: 'var(--text-dim)', fontWeight: 500 }}>{toPersianDigits(approvals.length)} تاییدیه</span>}
+          <svg 
+            width="18" height="18" 
+            viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" 
+            style={{ transform: isListOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.3s ease', marginRight: 'auto' }}
+          >
+            <path d="M19 9l-7 7-7-7" />
+          </svg>
         </div>
-        {loading ? (
-          <SkeletonTable rows={4} cols={6} />
-        ) : (
-          <div className="table-container">
-            <table className="table">
-              <thead>
+        
+        <div className={`collapse-wrapper ${isListOpen ? 'open' : 'closed'}`} style={{ flex: 1, minHeight: 0 }}>
+          <div className="collapse-inner" style={{ height: '100%' }}>
+            {loading ? (
+              <SkeletonTable rows={4} cols={6} />
+            ) : (
+              <div className="table-container" style={{ flex: 1, maxHeight: '600px', overflowY: 'auto' }}>
+                <table className="table table-lg">
+                  <thead>
                 <tr>
                   <th>پیمانکار</th>
                   <th>متریال</th>
                   <th>مقدار تایید شده</th>
                   <th>شماره قرارداد</th>
                   <th>پرتی مجاز</th>
-                  <th>یادداشت محاسبه</th>
                 </tr>
               </thead>
               <tbody>
                 {approvals.length === 0 ? (
                   <tr>
-                    <td colSpan="6">
+                    <td colSpan="5">
                       <div className="empty-state">
                         <div className="empty-state-icon">✅</div>
                         <div className="empty-state-title">تاییدیه‌ای یافت نشد</div>
@@ -276,7 +406,14 @@ const ApprovalsManager = () => {
                   approvals.map(a => (
                     <tr key={a.id}>
                       <td style={{ fontWeight: 600 }}>{a.contractor_detail?.full_name}</td>
-                      <td>{a.material_detail?.name}</td>
+                      <td>
+                        {a.material_detail?.name}
+                        {a.material_detail?.specs && a.material_detail.specs !== '—' && (
+                          <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginRight: '6px', fontWeight: 400 }}>
+                            ({a.material_detail.specs})
+                          </span>
+                        )}
+                      </td>
                       <td>
                         <span style={{ fontWeight: 700, color: 'var(--primary-500)' }}>
                           {a.approved_quantity} {a.material_detail?.unit_display}
@@ -284,7 +421,6 @@ const ApprovalsManager = () => {
                       </td>
                       <td style={{ direction: 'ltr', textAlign: 'right' }}>{a.contract_number || '-'}</td>
                       <td><span className="badge badge-warning">{a.allowed_waste}</span></td>
-                      <td style={{ fontSize: '0.82rem', color: 'var(--text-dim)', maxWidth: '200px' }}>{a.balance_note}</td>
                     </tr>
                   ))
                 )}
@@ -292,7 +428,9 @@ const ApprovalsManager = () => {
             </table>
           </div>
         )}
+        </div>
       </div>
+    </div>
     </div>
   );
 };

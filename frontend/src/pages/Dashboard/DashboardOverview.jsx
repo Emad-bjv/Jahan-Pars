@@ -1,64 +1,46 @@
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../../services/api';
 import { useToast } from '../../contexts/ToastContext';
-import { Skeleton, SkeletonCard, SkeletonTable } from '../../components/Skeleton';
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
-  Area, AreaChart
-} from 'recharts';
-import { formatPersianNumber, toPersianDigits } from '../../utils/persianNumbers';
+import { Skeleton } from '../../components/Skeleton';
+import { toPersianDigits } from '../../utils/persianNumbers';
+import JalaliDatePicker from '../../components/JalaliDatePicker';
+import BalanceModal from './BalanceModal';
+import GlobalBalanceTable from '../../components/GlobalBalanceTable';
 
-/* ─── Animated Counter Hook ──────────────────────────────────── */
-const useAnimatedCounter = (end, duration = 1200) => {
-  const [count, setCount] = useState(0);
-  const ref = useRef(null);
 
-  useEffect(() => {
-    if (end == null || isNaN(end)) return;
-    const target = Number(end);
-    const startTime = Date.now();
-    const animate = () => {
-      const elapsed = Date.now() - startTime;
-      const progress = Math.min(elapsed / duration, 1);
-      // Ease-out cubic
-      const eased = 1 - Math.pow(1 - progress, 3);
-      setCount(Math.round(target * eased));
-      if (progress < 1) {
-        ref.current = requestAnimationFrame(animate);
-      }
-    };
-    ref.current = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(ref.current);
-  }, [end, duration]);
 
-  return count;
+/* ─── Formatter Hook/Helper ──────────────────────────────────── */
+// فرمت‌کننده ایمن و زیبا برای اعداد (پشتیبانی از ارقام انگلیسی)
+const formatNum = (num) => {
+  if (num === null || num === undefined || isNaN(num)) return '0';
+  return Number(num).toLocaleString('en-US');
 };
 
 /* ─── SVG Icons ──────────────────────────────────────────────── */
 const StatIcons = {
   inbound: (
     <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-      <path d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/>
+      <path d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
     </svg>
   ),
   outbound: (
     <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-      <path d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
+      <path d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
     </svg>
   ),
   approved: (
     <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-      <path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0 1 12 2.944a11.955 11.955 0 0 1-8.618 3.04A12.02 12.02 0 0 0 3 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+      <path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0 1 12 2.944a11.955 11.955 0 0 1-8.618 3.04A12.02 12.02 0 0 0 3 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
     </svg>
   ),
   balance: (
     <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-      <path d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 0 0 6.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 0 0 6.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3"/>
+      <path d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 0 0 6.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 0 0 6.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3" />
     </svg>
   ),
   download: (
     <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-      <path d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5.586a1 1 0 0 1 .707.293l5.414 5.414a1 1 0 0 1 .293.707V19a2 2 0 0 1-2 2z"/>
+      <path d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5.586a1 1 0 0 1 .707.293l5.414 5.414a1 1 0 0 1 .293.707V19a2 2 0 0 1-2 2z" />
     </svg>
   ),
   pdf: (
@@ -72,45 +54,14 @@ const StatIcons = {
   ),
 };
 
-/* ─── Stat Card Component ────────────────────────────────────── */
-const StatCard = ({ icon, iconClass, title, value, subtitle, accentBar, delay }) => {
-  const animatedValue = useAnimatedCounter(value);
-  return (
-    <div className={`glow-card stat-card animate-in animate-in-delay-${delay} glow-${accentBar === 'bar-success' ? 'success' : accentBar === 'bar-warning' ? 'warning' : accentBar === 'bar-primary' ? 'primary' : 'danger'}`}>
-      <div className={`stat-accent-bar ${accentBar}`}></div>
-      <div className={`stat-card-icon ${iconClass}`}>{icon}</div>
-      <div className="stat-card-content">
-        <div className="stat-card-title">{title}</div>
-        <div className="stat-card-value">{formatPersianNumber(animatedValue)}</div>
-        {subtitle && <div className="stat-card-subtitle">{subtitle}</div>}
-      </div>
-    </div>
-  );
+const UNIT_LABELS = {
+  KG: 'کیلوگرم',
+  M: 'متر',
+  SQM: 'متر مربع',
+  PCS: 'عدد',
 };
 
-/* ─── Custom Tooltip ─────────────────────────────────────────── */
-const CustomTooltip = ({ active, payload, label }) => {
-  if (active && payload && payload.length) {
-    return (
-      <div style={{
-        background: 'var(--bg-surface-solid)',
-        border: '1px solid var(--border-color)',
-        borderRadius: 'var(--radius-md)',
-        padding: '0.75rem 1rem',
-        boxShadow: 'var(--shadow-lg)',
-        backdropFilter: 'blur(10px)',
-      }}>
-        <p style={{ fontWeight: 700, marginBottom: 4, color: 'var(--text-main)' }}>{label}</p>
-        <p style={{ color: payload[0].color, fontWeight: 600, fontSize: '1.1rem' }}>
-          {formatPersianNumber(Number(payload[0].value))}
-        </p>
-      </div>
-    );
-  }
-  return null;
-};
-
-/* ─── Main Component ─────────────────────────────────────────── */
+/* ─── Main Dashboard Component ───────────────────────────────── */
 const DashboardOverview = () => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -119,9 +70,33 @@ const DashboardOverview = () => {
   // Modal States
   const [isExcelModalOpen, setIsExcelModalOpen] = useState(false);
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
+  const [isInboundModalOpen, setIsInboundModalOpen] = useState(false);
+  const [inboundSearchQuery, setInboundSearchQuery] = useState('');
+  const [inventoryData, setInventoryData] = useState(null);
+  const [inventoryLoading, setInventoryLoading] = useState(false);
+  const [selectedMaterialGroup, setSelectedMaterialGroup] = useState(null);
+
+  // Outbound Modal States
+  const [isOutboundModalOpen, setIsOutboundModalOpen] = useState(false);
+  const [outboundSearchQuery, setOutboundSearchQuery] = useState('');
+  const [outboundData, setOutboundData] = useState(null);
+  const [outboundLoading, setOutboundLoading] = useState(false);
+  const [selectedOutboundMaterial, setSelectedOutboundMaterial] = useState(null);
+  const [selectedOutboundContractor, setSelectedOutboundContractor] = useState(null);
+
+  // Technical Office Approval Modal States
+  const [isApprovalsModalOpen, setIsApprovalsModalOpen] = useState(false);
+  const [approvalsSearchQuery, setApprovalsSearchQuery] = useState('');
+  const [approvalsData, setApprovalsData] = useState(null);
+  const [approvalsLoading, setApprovalsLoading] = useState(false);
+  const [selectedApprovalsContractor, setSelectedApprovalsContractor] = useState(null);
+  const [selectedApprovalsMaterial, setSelectedApprovalsMaterial] = useState(null);
   const [apiContractors, setApiContractors] = useState([]);
   const [apiMaterials, setApiMaterials] = useState([]);
-  
+
+  // Balance Modal States
+  const [isBalanceModalOpen, setIsBalanceModalOpen] = useState(false);
+
   // Excel Modal State
   const [excelContractorSearch, setExcelContractorSearch] = useState('');
   const [selectedExcelContractor, setSelectedExcelContractor] = useState(null);
@@ -131,13 +106,35 @@ const DashboardOverview = () => {
   const [pdfContractorSearch, setPdfContractorSearch] = useState('');
   const [selectedPdfContractor, setSelectedPdfContractor] = useState(null);
   const [showPdfContractorDropdown, setShowPdfContractorDropdown] = useState(false);
-  
+
   const [pdfMaterialSearch, setPdfMaterialSearch] = useState('');
   const [selectedPdfMaterial, setSelectedPdfMaterial] = useState(null);
   const [showPdfMaterialDropdown, setShowPdfMaterialDropdown] = useState(false);
+  const [pdfReceivedMaterialIds, setPdfReceivedMaterialIds] = useState(null);
 
   const [pdfFromDate, setPdfFromDate] = useState('');
   const [pdfToDate, setPdfToDate] = useState('');
+  const [pdfStatus, setPdfStatus] = useState('');
+
+  const excelDropdownRef = useRef(null);
+  const pdfContractorDropdownRef = useRef(null);
+  const pdfMaterialDropdownRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (excelDropdownRef.current && !excelDropdownRef.current.contains(event.target)) {
+        setShowExcelDropdown(false);
+      }
+      if (pdfContractorDropdownRef.current && !pdfContractorDropdownRef.current.contains(event.target)) {
+        setShowPdfContractorDropdown(false);
+      }
+      if (pdfMaterialDropdownRef.current && !pdfMaterialDropdownRef.current.contains(event.target)) {
+        setShowPdfMaterialDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -171,7 +168,7 @@ const DashboardOverview = () => {
       showToast('در حال آماده سازی گزارش...', 'info');
       let endpoint = 'balance/download-global/';
       let filename = 'global_balance';
-      
+
       const response = await api.get(endpoint, { responseType: 'blob' });
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
@@ -192,7 +189,7 @@ const DashboardOverview = () => {
       showToast('لطفاً یک پیمانکار انتخاب کنید', 'error');
       return;
     }
-    
+
     try {
       showToast('در حال آماده سازی گزارش...', 'info');
       const response = await api.get(`balance/download/?contractor_id=${selectedExcelContractor.id}`, { responseType: 'blob' });
@@ -220,7 +217,8 @@ const DashboardOverview = () => {
       if (selectedPdfMaterial) params.append('material_id', selectedPdfMaterial.id);
       if (pdfFromDate) params.append('from_date', pdfFromDate);
       if (pdfToDate) params.append('to_date', pdfToDate);
-      
+      if (pdfStatus) params.append('status', pdfStatus);
+
       const response = await api.get(`${urlStr}${params.toString()}`, { responseType: 'blob' });
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
@@ -237,212 +235,377 @@ const DashboardOverview = () => {
     }
   };
 
+  const handleOpenInboundModal = async () => {
+    setIsInboundModalOpen(true);
+    if (!inventoryData) {
+      setInventoryLoading(true);
+      try {
+        const response = await api.get('balance/inventory/');
+        setInventoryData(response.data);
+      } catch (error) {
+        console.error("Error fetching inventory data", error);
+        showToast('خطا در دریافت موجودی و ورودی‌های انبار.', 'error');
+      } finally {
+        setInventoryLoading(false);
+      }
+    }
+  };
+
+  const handleCloseInboundModal = () => {
+    setIsInboundModalOpen(false);
+    setInboundSearchQuery('');
+    setSelectedMaterialGroup(null);
+  };
+
+  const handleOpenOutboundModal = async () => {
+    setIsOutboundModalOpen(true);
+    if (!outboundData) {
+      setOutboundLoading(true);
+      try {
+        const response = await api.get('balance/contractor-outbound/');
+        setOutboundData(response.data);
+      } catch (error) {
+        console.error("Error fetching outbound data", error);
+        showToast('خطا در دریافت اطلاعات خروجی انبار.', 'error');
+      } finally {
+        setOutboundLoading(false);
+      }
+    }
+  };
+
+  const handleCloseOutboundModal = () => {
+    setIsOutboundModalOpen(false);
+    setOutboundSearchQuery('');
+    setSelectedOutboundMaterial(null);
+    setSelectedOutboundContractor(null);
+  };
+
+  const handleOpenApprovalsModal = async () => {
+    setIsApprovalsModalOpen(true);
+    if (!approvalsData) {
+      setApprovalsLoading(true);
+      try {
+        const response = await api.get('balance/contractor-approvals/');
+        setApprovalsData(response.data);
+      } catch (error) {
+        console.error("Error fetching approvals data", error);
+        showToast('خطا در دریافت اطلاعات تاییدیه‌های دفتر فنی.', 'error');
+      } finally {
+        setApprovalsLoading(false);
+      }
+    }
+  };
+
+  const handleCloseApprovalsModal = () => {
+    setIsApprovalsModalOpen(false);
+    setApprovalsSearchQuery('');
+    setSelectedApprovalsContractor(null);
+    setSelectedApprovalsMaterial(null);
+  };
+
   if (loading) {
     return (
-      <div style={{ maxWidth: '1400px', margin: '0 auto', paddingTop: '1rem' }}>
-        <div className="grid grid-cols-4" style={{ marginBottom: '2rem' }}>
-          {Array.from({length: 4}).map((_, i) => <SkeletonCard key={i} />)}
+      <div style={{ maxWidth: '1200px', margin: '0 auto', paddingTop: '1rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2rem' }}>
+          <div>
+            <Skeleton width="180px" height="32px" style={{ marginBottom: '8px' }} />
+            <Skeleton width="300px" height="18px" />
+          </div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <Skeleton width="120px" height="40px" />
+            <Skeleton width="120px" height="40px" />
+            <Skeleton width="120px" height="40px" />
+          </div>
         </div>
-        <div className="grid grid-cols-2">
-          <div className="glass-panel" style={{ padding: '1.5rem', height: '400px' }}><Skeleton width="100%" height="100%" /></div>
-          <div className="glass-panel" style={{ padding: '1.5rem', height: '400px' }}><SkeletonTable rows={4} cols={3} /></div>
+        <div className="glass-panel" style={{ padding: '2rem', height: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ color: 'var(--text-dim)' }}>در حال بارگذاری اطلاعات...</div>
         </div>
       </div>
     );
   }
 
-  const chartData = [
-    { name: 'متریال ورودی', value: data?.total_in || 0, fill: 'var(--success-500)', color: '#10b981' },
-    { name: 'متریال خروجی', value: data?.total_out || 0, fill: 'var(--warning-500)', color: '#f59e0b' },
-    { name: 'کار تایید شده', value: data?.total_approved || 0, fill: 'var(--primary-500)', color: '#6366f1' },
-  ];
+  // محاسبه موازنه متریال به تفکیک واحدها
+  const balanceObj = {};
+  if (data) {
+    const allUnits = new Set([
+      ...Object.keys(data.total_in || {}),
+      ...Object.keys(data.total_out || {}),
+      ...Object.keys(data.total_approved || {})
+    ]);
+    allUnits.forEach(unit => {
+      const outQty = data.total_out?.[unit] || 0;
+      const appQty = data.total_approved?.[unit] || 0;
+      balanceObj[unit] = outQty - appQty;
+    });
+  }
 
-  const contractors = data?.contractors || [];
-  const totalBalance = contractors.reduce((acc, curr) => acc + curr.total_balance, 0);
+  const renderCardUnits = (totalsObj, isBalance = false) => {
+    if (!totalsObj || Object.keys(totalsObj).length === 0) {
+      return <div className="kpi-empty-text">داده‌ای ثبت نشده است</div>;
+    }
+    return (
+      <div className="kpi-card-body">
+        {Object.entries(totalsObj).map(([unit, val]) => {
+          let valueColor = 'var(--text-main)';
+          if (isBalance) {
+            if (val > 0) valueColor = 'var(--danger)';
+            else if (val < 0) valueColor = 'var(--success)';
+            else valueColor = 'var(--text-muted)';
+          }
+          return (
+            <div key={unit} className="kpi-unit-row">
+              <span className="kpi-unit-name">{UNIT_LABELS[unit] || unit}</span>
+              <span className="kpi-unit-value" style={{ color: valueColor }}>
+                {formatNum(val)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const getGroupedInboundMaterials = () => {
+    if (!inventoryData) return [];
+    const grouped = {};
+    inventoryData.forEach(item => {
+      const totalIn = Number(item.total_in || 0);
+      if (totalIn <= 0) return;
+      const name = item.name || '';
+      const unit = item.unit_display || item.unit || '';
+      const key = `${name}__${unit}`;
+      if (!grouped[key]) {
+        grouped[key] = { name, unit, total_in: 0 };
+      }
+      grouped[key].total_in += totalIn;
+    });
+    return Object.values(grouped)
+      .filter(item => item.name.toLowerCase().includes(inboundSearchQuery.toLowerCase()))
+      .sort((a, b) => b.total_in - a.total_in);
+  };
+
+  const getOutboundMaterialsLevel1 = () => {
+    if (!outboundData) return [];
+    const grouped = {};
+    outboundData.forEach(item => {
+      const totalQty = Number(item.total_qty || 0);
+      if (totalQty <= 0) return;
+      const materialName = item.material_name || '';
+      const unit = item.unit || '';
+      const key = `${materialName}__${unit}`;
+      if (!grouped[key]) {
+        grouped[key] = {
+          name: materialName,
+          unit: unit,
+          total_qty: 0
+        };
+      }
+      grouped[key].total_qty += totalQty;
+    });
+    return Object.values(grouped)
+      .filter(item => item.name.toLowerCase().includes(outboundSearchQuery.toLowerCase()))
+      .sort((a, b) => b.total_qty - a.total_qty);
+  };
+
+  const getOutboundContractorsLevel2 = () => {
+    if (!outboundData || !selectedOutboundMaterial) return [];
+    const grouped = {};
+    outboundData.forEach(item => {
+      const totalQty = Number(item.total_qty || 0);
+      if (totalQty <= 0) return;
+      if (item.material_name !== selectedOutboundMaterial.name || item.unit !== selectedOutboundMaterial.unit) return;
+      
+      const contractorId = item.contractor_id;
+      const contractorName = item.contractor_name || '';
+      const key = `${contractorId}`;
+      if (!grouped[key]) {
+        grouped[key] = {
+          contractor_id: contractorId,
+          contractor_name: contractorName,
+          total_qty: 0
+        };
+      }
+      grouped[key].total_qty += totalQty;
+    });
+    return Object.values(grouped)
+      .filter(item => item.contractor_name.toLowerCase().includes(outboundSearchQuery.toLowerCase()))
+      .sort((a, b) => b.total_qty - a.total_qty);
+  };
+
+  const getOutboundSpecsLevel3 = () => {
+    if (!outboundData || !selectedOutboundMaterial || !selectedOutboundContractor) return [];
+    return outboundData.filter(item => {
+      return item.material_name === selectedOutboundMaterial.name &&
+             item.unit === selectedOutboundMaterial.unit &&
+             item.contractor_id === selectedOutboundContractor.contractor_id &&
+             Number(item.total_qty || 0) > 0;
+    });
+  };
+
+  const getApprovalsContractorsLevel1 = () => {
+    if (!approvalsData) return [];
+    const grouped = {};
+    approvalsData.forEach(item => {
+      const apprQty = Number(item.total_approved || 0);
+      if (apprQty <= 0) return;
+      const contractorId = item.contractor_id;
+      const contractorName = item.contractor_name || '';
+      const unit = item.unit || '';
+      
+      const key = `${contractorId}`;
+      if (!grouped[key]) {
+        grouped[key] = {
+          contractor_id: contractorId,
+          contractor_name: contractorName,
+          units: {}
+        };
+      }
+      if (!grouped[key].units[unit]) {
+        grouped[key].units[unit] = 0;
+      }
+      grouped[key].units[unit] += apprQty;
+    });
+    return Object.values(grouped)
+      .filter(item => item.contractor_name.toLowerCase().includes(approvalsSearchQuery.toLowerCase()))
+      .sort((a, b) => a.contractor_name.localeCompare(b.contractor_name, 'fa'));
+  };
+
+  const getApprovalsMaterialsLevel2 = () => {
+    if (!approvalsData || !selectedApprovalsContractor) return [];
+    const grouped = {};
+    approvalsData.forEach(item => {
+      if (item.contractor_id !== selectedApprovalsContractor.contractor_id) return;
+      
+      const materialId = item.material_id;
+      const materialName = item.material_name || '';
+      const unit = item.unit || '';
+      const deliveredQty = Number(item.total_delivered || 0);
+      const approvedQty = Number(item.total_approved || 0);
+      
+      const key = `${materialId}__${unit}`;
+      if (!grouped[key]) {
+        grouped[key] = {
+          material_id: materialId,
+          name: materialName,
+          unit: unit,
+          total_delivered: 0,
+          total_approved: 0
+        };
+      }
+      grouped[key].total_delivered += deliveredQty;
+      grouped[key].total_approved += approvedQty;
+    });
+    return Object.values(grouped)
+      .filter(item => item.name.toLowerCase().includes(approvalsSearchQuery.toLowerCase()))
+      .sort((a, b) => b.total_approved - a.total_approved);
+  };
+
+  const getApprovalsSpecsLevel3 = () => {
+    if (!approvalsData || !selectedApprovalsContractor || !selectedApprovalsMaterial) return [];
+    return approvalsData.filter(item => {
+      return item.contractor_id === selectedApprovalsContractor.contractor_id &&
+             item.material_id === selectedApprovalsMaterial.material_id &&
+             item.unit === selectedApprovalsMaterial.unit &&
+             (Number(item.total_delivered || 0) > 0 || Number(item.total_approved || 0) > 0);
+    });
+  };
 
   return (
-    <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+    <div style={{ maxWidth: '1200px', margin: '0 auto', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 2.5rem)' }}>
       {/* Header */}
-      <div className="page-header animate-in">
+      <div className="page-header animate-in" style={{ flexShrink: 0 }}>
         <div>
           <h1 className="gradient-text">نمای کلی کارگاه</h1>
           <p>خلاصه وضعیت موازنه متریال و عملکرد پیمانکاران</p>
         </div>
         <div className="page-header-actions" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          <button className="btn btn-secondary" onClick={() => setIsExcelModalOpen(true)}>
+          <button className="btn btn-excel" onClick={() => setIsExcelModalOpen(true)}>
             {StatIcons.download}
             تفکیک پیمانکاران
           </button>
-          <button className="btn btn-secondary" onClick={() => setIsPdfModalOpen(true)}>
+          <button className="btn btn-pdf" onClick={() => setIsPdfModalOpen(true)}>
             {StatIcons.pdf}
             خروجی PDF
           </button>
-          <button className="btn btn-primary" onClick={() => downloadReport('global')}>
+          <button className="btn btn-excel" onClick={() => downloadReport('global')}>
             {StatIcons.download}
             موازنه کل
           </button>
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-4" style={{ marginBottom: '1rem' }}>
-        <StatCard
-          icon={StatIcons.inbound}
-          iconClass="icon-success"
-          title="کل متریال ورودی"
-          value={data?.total_in || 0}
-          accentBar="bar-success"
-          delay={1}
-        />
-        <StatCard
-          icon={StatIcons.outbound}
-          iconClass="icon-warning"
-          title="کل متریال خروجی"
-          value={data?.total_out || 0}
-          accentBar="bar-warning"
-          delay={2}
-        />
-        <StatCard
-          icon={StatIcons.approved}
-          iconClass="icon-primary"
-          title="کل تاییدیه‌ها"
-          value={data?.total_approved || 0}
-          accentBar="bar-primary"
-          delay={3}
-        />
-        <StatCard
-          icon={StatIcons.balance}
-          iconClass={totalBalance > 0 ? 'icon-danger' : 'icon-success'}
-          title="وضعیت موازنه"
-          value={Math.abs(totalBalance)}
-          subtitle={totalBalance > 0 ? 'بدهکار کل (مازاد دریافت)' : totalBalance < 0 ? 'بستانکار کل (کسری)' : 'وضعیت نرمال ✓'}
-          accentBar={totalBalance > 0 ? 'bar-danger' : 'bar-success'}
-          delay={4}
-        />
-      </div>
-
-      {/* Charts & Table */}
-      <div className="grid grid-cols-2" style={{ alignItems: 'start' }}>
-        {/* Chart Section */}
-        <div className="section-panel animate-in animate-in-delay-5" style={{ height: '340px' }}>
-          <div className="section-title">
-            <div className="section-title-icon">
-              <svg width="16" height="16" fill="none" stroke="var(--primary-500)" strokeWidth="2" viewBox="0 0 24 24"><path d="M9 19v-6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2zm0 0V9a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v10m-6 0a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2m0 0V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2z"/></svg>
+      {/* KPI Cards Grid */}
+      <div className="dashboard-kpi-grid animate-in" style={{ flexShrink: 0 }}>
+        <div className="kpi-card glow-primary interactive" onClick={handleOpenInboundModal}>
+          <div className="kpi-card-header">
+            <span className="kpi-card-title">ورودی انبار</span>
+            <div className="kpi-card-icon">
+              {StatIcons.inbound}
             </div>
-            نمودار کلی عملیات
           </div>
-          <div style={{ width: '100%', height: 'calc(100% - 50px)', direction: 'ltr' }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-                <defs>
-                  <linearGradient id="gradGreen" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#34d399" stopOpacity={0.9}/>
-                    <stop offset="100%" stopColor="#059669" stopOpacity={0.9}/>
-                  </linearGradient>
-                  <linearGradient id="gradOrange" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#fbbf24" stopOpacity={0.9}/>
-                    <stop offset="100%" stopColor="#d97706" stopOpacity={0.9}/>
-                  </linearGradient>
-                  <linearGradient id="gradIndigo" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#818cf8" stopOpacity={0.9}/>
-                    <stop offset="100%" stopColor="#4f46e5" stopOpacity={0.9}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" vertical={false} />
-                <XAxis dataKey="name" stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
-                <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(99, 102, 241, 0.04)' }} />
-                <Bar dataKey="value" radius={[8, 8, 0, 0]} barSize={60}>
-                  <Cell fill="url(#gradGreen)" />
-                  <Cell fill="url(#gradOrange)" />
-                  <Cell fill="url(#gradIndigo)" />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+          {renderCardUnits(data?.total_in)}
         </div>
 
-        {/* Contractors Table Section */}
-        <div className="section-panel animate-in animate-in-delay-6" style={{ height: '340px', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          <div className="section-title">
-            <div className="section-title-icon">
-              <svg width="16" height="16" fill="none" stroke="var(--primary-500)" strokeWidth="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+        <div className="kpi-card glow-warning interactive" onClick={handleOpenOutboundModal}>
+          <div className="kpi-card-header">
+            <span className="kpi-card-title">خروجی انبار</span>
+            <div className="kpi-card-icon">
+              {StatIcons.outbound}
             </div>
-            موازنه پیمانکاران
           </div>
-          <div className="table-container" style={{ flex: 1, overflowY: 'auto' }}>
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>نام پیمانکار</th>
-                  <th style={{ textAlign: 'center' }}>موازنه (مقادیر)</th>
-                  <th style={{ textAlign: 'center' }}>وضعیت</th>
-                </tr>
-              </thead>
-              <tbody>
-                {contractors.length === 0 ? (
-                  <tr>
-                    <td colSpan="3">
-                      <div className="empty-state">
-                        <div className="empty-state-icon">📋</div>
-                        <div className="empty-state-title">اطلاعاتی یافت نشد</div>
-                        <div className="empty-state-description">هنوز هیچ تراکنشی ثبت نشده است</div>
-                      </div>
-                    </td>
-                  </tr>
-                ) : (
-                  contractors.map((c) => (
-                    <tr key={c.contractor_id}>
-                      <td style={{ fontWeight: 600 }}>
-                        {c.contractor_name}
-                        {c.under_review_count > 0 && (
-                          <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: '4px' }}>
-                            ⏳ {formatPersianNumber(c.under_review_count)} مورد در دست بررسی دفتر فنی
-                          </div>
-                        )}
-                      </td>
-                      <td style={{ textAlign: 'center', direction: 'ltr' }}>
-                        <span style={{ 
-                          fontWeight: 700, 
-                          color: c.total_balance > 0 ? 'var(--danger-500)' : c.total_balance < 0 ? 'var(--success-500)' : 'var(--text-main)'
-                        }}>
-                          {c.total_balance > 0 ? `+${formatPersianNumber(c.total_balance)}` : formatPersianNumber(c.total_balance)}
-                        </span>
-                      </td>
-                      <td style={{ textAlign: 'center' }}>
-                        {c.total_balance > 0 ? (
-                          <span className="badge badge-danger">بدهکار (مازاد دریافت)</span>
-                        ) : c.total_balance < 0 ? (
-                          <span className="badge badge-success">بستانکار (کسری)</span>
-                        ) : c.under_review_count > 0 ? (
-                          <span className="badge badge-secondary">در انتظار تایید</span>
-                        ) : (
-                          <span className="badge badge-warning">تسویه</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+          {renderCardUnits(data?.total_out)}
+        </div>
+
+        <div className="kpi-card glow-success interactive" onClick={handleOpenApprovalsModal}>
+          <div className="kpi-card-header">
+            <span className="kpi-card-title">تاییدیه دفتر فنی</span>
+            <div className="kpi-card-icon">
+              {StatIcons.approved}
+            </div>
           </div>
+          {renderCardUnits(data?.total_approved)}
+        </div>
+
+        <div className="kpi-card glow-warning interactive" onClick={() => setIsBalanceModalOpen(true)}>
+          <div className="kpi-card-header">
+            <span className="kpi-card-title">موازنه کل</span>
+            <div className="kpi-card-icon">
+              {StatIcons.balance}
+            </div>
+          </div>
+          {renderCardUnits(balanceObj, true)}
         </div>
       </div>
 
+      <GlobalBalanceTable />
+
+      {/* Download Excel/PDF Modals */}
+      <BalanceModal 
+        isOpen={isBalanceModalOpen} 
+        onClose={() => setIsBalanceModalOpen(false)} 
+        contractorsSummary={data?.contractors} 
+      />
       {/* Excel Modal */}
       {isExcelModalOpen && (
         <div className="modal-overlay" onClick={() => setIsExcelModalOpen(false)}>
-          <div className="modal-container animate-in" onClick={e => e.stopPropagation()}>
+          <div
+            className="modal-container animate-in"
+            onClick={e => {
+              e.stopPropagation();
+              setShowExcelDropdown(false);
+            }}
+            style={{ maxWidth: '800px', width: '90%', height: '500px', display: 'flex', flexDirection: 'column' }}
+          >
             <div className="modal-header">
               <h2>دانلود گزارش تفکیک پیمانکار</h2>
               <button className="modal-close-btn" onClick={() => setIsExcelModalOpen(false)}>
                 ✕
               </button>
             </div>
-            <div className="modal-body">
-              <div className="form-group">
+            <div className="modal-body" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+              <div className="form-group" onClick={e => e.stopPropagation()} style={{ position: 'relative' }}>
                 <label className="form-label">انتخاب پیمانکار</label>
-                <div className="searchable-dropdown">
+                <div className="searchable-dropdown" ref={excelDropdownRef} style={{ position: 'relative' }}>
                   <input
                     type="text"
                     className="searchable-dropdown-input"
@@ -454,7 +617,36 @@ const DashboardOverview = () => {
                       if (e.target.value === '') setSelectedExcelContractor(null);
                     }}
                     onFocus={() => setShowExcelDropdown(true)}
+                    style={{ paddingLeft: '2.5rem' }}
                   />
+                  {excelContractorSearch && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedExcelContractor(null);
+                        setExcelContractorSearch('');
+                        setShowExcelDropdown(false);
+                      }}
+                      style={{
+                        position: 'absolute',
+                        left: '10px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'transparent',
+                        border: 'none',
+                        color: 'var(--text-muted)',
+                        cursor: 'pointer',
+                        fontSize: '1.1rem',
+                        padding: '0.2rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 10
+                      }}
+                    >
+                      ✕
+                    </button>
+                  )}
                   {showExcelDropdown && (
                     <div className="searchable-dropdown-list">
                       {apiContractors
@@ -471,18 +663,18 @@ const DashboardOverview = () => {
                           >
                             {c.first_name} {c.last_name}
                           </div>
-                      ))}
+                        ))}
                       {apiContractors.filter(c => `${c.first_name} ${c.last_name}`.includes(excelContractorSearch)).length === 0 && (
-                        <div className="searchable-dropdown-item" style={{color: 'var(--text-dim)', textAlign: 'center'}}>پیمانکاری یافت نشد</div>
+                        <div className="searchable-dropdown-item" style={{ color: 'var(--text-dim)', textAlign: 'center' }}>پیمانکاری یافت نشد</div>
                       )}
                     </div>
                   )}
                 </div>
               </div>
             </div>
-            <div className="modal-footer">
+            <div className="modal-footer" style={{ marginTop: 'auto' }}>
               <button className="btn btn-ghost" onClick={() => setIsExcelModalOpen(false)}>انصراف</button>
-              <button className="btn btn-primary" onClick={handleDownloadExcel}>دانلود گزارش</button>
+              <button className="btn btn-excel" onClick={handleDownloadExcel}>دانلود گزارش</button>
             </div>
           </div>
         </div>
@@ -491,17 +683,46 @@ const DashboardOverview = () => {
       {/* PDF Modal */}
       {isPdfModalOpen && (
         <div className="modal-overlay" onClick={() => setIsPdfModalOpen(false)}>
-          <div className="modal-container animate-in" onClick={e => e.stopPropagation()}>
+          <div
+            className="modal-container animate-in"
+            onClick={e => {
+              e.stopPropagation();
+              setShowPdfContractorDropdown(false);
+              setShowPdfMaterialDropdown(false);
+            }}
+            style={{ maxWidth: '1000px', width: '90%', display: 'flex', flexDirection: 'column' }}
+          >
             <div className="modal-header">
               <h2>تولید فایل PDF موازنه</h2>
               <button className="modal-close-btn" onClick={() => setIsPdfModalOpen(false)}>
                 ✕
               </button>
             </div>
-            <div className="modal-body">
-              <div className="form-group">
+            <div className="modal-body" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+              <div className="grid grid-cols-2" style={{ gap: '1rem', marginBottom: '1rem' }}>
+                <div className="form-group">
+                  <label className="form-label">از تاریخ (اختیاری)</label>
+                  <JalaliDatePicker
+                    name="from_date"
+                    value={pdfFromDate}
+                    onChange={e => setPdfFromDate(e.target.value)}
+                    placeholder="انتخاب از تاریخ..."
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">تا تاریخ (اختیاری)</label>
+                  <JalaliDatePicker
+                    name="to_date"
+                    value={pdfToDate}
+                    onChange={e => setPdfToDate(e.target.value)}
+                    placeholder="انتخاب تا تاریخ..."
+                  />
+                </div>
+              </div>
+
+              <div className="form-group" onClick={e => e.stopPropagation()} style={{ position: 'relative' }}>
                 <label className="form-label">انتخاب پیمانکار (اختیاری)</label>
-                <div className="searchable-dropdown">
+                <div className="searchable-dropdown" ref={pdfContractorDropdownRef} style={{ position: 'relative' }}>
                   <input
                     type="text"
                     className="searchable-dropdown-input"
@@ -510,13 +731,46 @@ const DashboardOverview = () => {
                     onChange={(e) => {
                       setPdfContractorSearch(e.target.value);
                       setShowPdfContractorDropdown(true);
-                      if (e.target.value === '') setSelectedPdfContractor(null);
+                      if (e.target.value === '') {
+                        setSelectedPdfContractor(null);
+                        setPdfReceivedMaterialIds(null);
+                      }
                     }}
                     onFocus={() => setShowPdfContractorDropdown(true)}
+                    style={{ paddingLeft: '2.5rem' }}
                   />
+                  {pdfContractorSearch && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedPdfContractor(null);
+                        setPdfContractorSearch('');
+                        setShowPdfContractorDropdown(false);
+                        setPdfReceivedMaterialIds(null);
+                      }}
+                      style={{
+                        position: 'absolute',
+                        left: '10px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'transparent',
+                        border: 'none',
+                        color: 'var(--text-muted)',
+                        cursor: 'pointer',
+                        fontSize: '1.1rem',
+                        padding: '0.2rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 10
+                      }}
+                    >
+                      ✕
+                    </button>
+                  )}
                   {showPdfContractorDropdown && (
                     <div className="searchable-dropdown-list">
-                      <div className="searchable-dropdown-item" onClick={() => { setSelectedPdfContractor(null); setPdfContractorSearch(''); setShowPdfContractorDropdown(false); }}>
+                      <div className="searchable-dropdown-item" onClick={() => { setSelectedPdfContractor(null); setPdfContractorSearch(''); setShowPdfContractorDropdown(false); setPdfReceivedMaterialIds(null); }}>
                         همه پیمانکاران
                       </div>
                       {apiContractors
@@ -525,23 +779,30 @@ const DashboardOverview = () => {
                           <div
                             key={c.id}
                             className={`searchable-dropdown-item ${selectedPdfContractor?.id === c.id ? 'selected' : ''}`}
-                            onClick={() => {
+                            onClick={async () => {
                               setSelectedPdfContractor(c);
                               setPdfContractorSearch(`${c.first_name} ${c.last_name}`);
                               setShowPdfContractorDropdown(false);
+                              try {
+                                const response = await api.get(`contractors/${c.id}/received-materials/`);
+                                setPdfReceivedMaterialIds(response.data);
+                              } catch (err) {
+                                console.error('Error fetching received materials', err);
+                                setPdfReceivedMaterialIds(null);
+                              }
                             }}
                           >
                             {c.first_name} {c.last_name}
                           </div>
-                      ))}
+                        ))}
                     </div>
                   )}
                 </div>
               </div>
 
-              <div className="form-group">
+              <div className="form-group" onClick={e => e.stopPropagation()} style={{ position: 'relative' }}>
                 <label className="form-label">انتخاب متریال (اختیاری)</label>
-                <div className="searchable-dropdown">
+                <div className="searchable-dropdown" ref={pdfMaterialDropdownRef} style={{ position: 'relative' }}>
                   <input
                     type="text"
                     className="searchable-dropdown-input"
@@ -553,47 +814,646 @@ const DashboardOverview = () => {
                       if (e.target.value === '') setSelectedPdfMaterial(null);
                     }}
                     onFocus={() => setShowPdfMaterialDropdown(true)}
+                    style={{ paddingLeft: '2.5rem' }}
                   />
+                  {pdfMaterialSearch && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedPdfMaterial(null);
+                        setPdfMaterialSearch('');
+                        setShowPdfMaterialDropdown(false);
+                      }}
+                      style={{
+                        position: 'absolute',
+                        left: '10px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'transparent',
+                        border: 'none',
+                        color: 'var(--text-muted)',
+                        cursor: 'pointer',
+                        fontSize: '1.1rem',
+                        padding: '0.2rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 10
+                      }}
+                    >
+                      ✕
+                    </button>
+                  )}
                   {showPdfMaterialDropdown && (
                     <div className="searchable-dropdown-list">
                       <div className="searchable-dropdown-item" onClick={() => { setSelectedPdfMaterial(null); setPdfMaterialSearch(''); setShowPdfMaterialDropdown(false); }}>
                         همه متریال‌ها
                       </div>
                       {apiMaterials
-                        .filter(m => m.name.includes(pdfMaterialSearch))
-                        .map(m => (
-                          <div
-                            key={m.id}
-                            className={`searchable-dropdown-item ${selectedPdfMaterial?.id === m.id ? 'selected' : ''}`}
-                            onClick={() => {
-                              setSelectedPdfMaterial(m);
-                              setPdfMaterialSearch(m.name);
-                              setShowPdfMaterialDropdown(false);
-                            }}
-                          >
-                            {m.name} <small style={{color:'var(--text-dim)'}}>({m.unit_display || m.unit})</small>
-                          </div>
-                      ))}
+                        .filter(m => {
+                          if (pdfReceivedMaterialIds && !pdfReceivedMaterialIds.includes(m.id)) return false;
+                          const query = pdfMaterialSearch.toLowerCase();
+                          return m.name.toLowerCase().includes(query) ||
+                            (m.size && m.size.toLowerCase().includes(query)) ||
+                            (m.thickness && m.thickness.toLowerCase().includes(query)) ||
+                            (m.material_type && m.material_type.toLowerCase().includes(query));
+                        })
+                        .map(m => {
+                          const specs = [m.size, m.thickness, m.material_type].filter(Boolean).join(' / ');
+                          const label = specs ? `${m.name} (${specs}) (${m.unit_display || m.unit})` : `${m.name} (${m.unit_display || m.unit})`;
+                          return (
+                            <div
+                              key={m.id}
+                              className={`searchable-dropdown-item ${selectedPdfMaterial?.id === m.id ? 'selected' : ''}`}
+                              onClick={() => {
+                                setSelectedPdfMaterial(m);
+                                setPdfMaterialSearch(label);
+                                setShowPdfMaterialDropdown(false);
+                              }}
+                            >
+                              {m.name} {specs && <small style={{ color: 'var(--text-dim)', marginRight: '4px' }}>({specs})</small>} <small style={{ color: 'var(--text-dim)' }}>({m.unit_display || m.unit})</small>
+                            </div>
+                          );
+                        })}
                     </div>
                   )}
                 </div>
               </div>
 
-              <div className="grid grid-cols-2" style={{ gap: '1rem' }}>
-                <div className="form-group">
-                  <label className="form-label">از تاریخ (اختیاری)</label>
-                  <input type="date" className="form-control" value={pdfFromDate} onChange={e => setPdfFromDate(e.target.value)} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">تا تاریخ (اختیاری)</label>
-                  <input type="date" className="form-control" value={pdfToDate} onChange={e => setPdfToDate(e.target.value)} />
-                </div>
+              <div className="form-group">
+                <label className="form-label">وضعیت موازنه (اختیاری)</label>
+                <select className="form-control" value={pdfStatus} onChange={e => setPdfStatus(e.target.value)}>
+                  <option value="">همه وضعیت‌ها</option>
+                  <option value="debtor">بدهکار (مازاد دریافت)</option>
+                  <option value="creditor">بستانکار (کسری)</option>
+                  <option value="under_review">در حال بررسی توسط دفتر فنی</option>
+                  <option value="cleared">تسویه</option>
+                </select>
               </div>
 
             </div>
             <div className="modal-footer">
               <button className="btn btn-ghost" onClick={() => setIsPdfModalOpen(false)}>انصراف</button>
-              <button className="btn btn-primary" onClick={handleDownloadPdf}>تولید فایل PDF</button>
+              <button className="btn btn-pdf" onClick={handleDownloadPdf}>تولید فایل PDF</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Luxury Inbound Summary Modal */}
+      {isInboundModalOpen && (
+        <div className="luxury-modal-overlay" onClick={handleCloseInboundModal}>
+          <div className="luxury-modal-container animate-in" onClick={e => e.stopPropagation()}>
+            <div className="luxury-modal-header">
+              <h3>خلاصه متریال‌های ورودی</h3>
+              <button className="luxury-close-btn" onClick={handleCloseInboundModal}>
+                ✕
+              </button>
+            </div>
+
+            {/* View 1: Show search wrapper ONLY when no group is selected */}
+            {!selectedMaterialGroup && (
+              <div className="luxury-search-wrapper">
+                <input
+                  type="text"
+                  className="luxury-search-input"
+                  placeholder="جستجوی متریال..."
+                  value={inboundSearchQuery}
+                  onChange={e => setInboundSearchQuery(e.target.value)}
+                />
+                <span className="luxury-search-icon">
+                  <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                </span>
+              </div>
+            )}
+
+            <div className="luxury-modal-body">
+              {inventoryLoading ? (
+                <div className="luxury-loading-state">
+                  <div className="luxury-spinner"></div>
+                  <span>در حال بارگذاری جزئیات ورودی‌ها...</span>
+                </div>
+              ) : selectedMaterialGroup ? (
+                /* View 2: Detailed Sub-Page View */
+                <div className="luxury-view-fade-in">
+                  <button className="luxury-back-btn" onClick={() => setSelectedMaterialGroup(null)}>
+                    <span className="luxury-back-icon">
+                      <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                      </svg>
+                    </span>
+                    بازگشت به لیست
+                  </button>
+
+                  <div className="luxury-details-list">
+                    {(inventoryData ? inventoryData.filter(sub => {
+                      const subName = sub.name || '';
+                      const subUnit = sub.unit_display || sub.unit || '';
+                      return subName === selectedMaterialGroup.name && subUnit === selectedMaterialGroup.unit && Number(sub.total_in || 0) > 0;
+                    }) : []).map((sub, idx) => (
+                      <div key={sub.id || idx} className="luxury-sub-row animate-in">
+                        <div className="luxury-sub-specs">
+                          <span className="luxury-spec-badge">سایز: {sub.size || '—'}</span>
+                          <span className="luxury-spec-badge">جنس: {sub.material_type || '—'}</span>
+                          <span className="luxury-spec-badge">ضخامت: {sub.thickness || '—'}</span>
+                        </div>
+                        <div className="luxury-sub-values">
+                          <div className="luxury-sub-value-item">
+                            <span className="luxury-sub-value-label">ورودی:</span>
+                            <span className="luxury-sub-value-qty">{formatNum(sub.total_in)}</span>
+                            <span className="luxury-sub-value-unit">{sub.unit_display || sub.unit}</span>
+                          </div>
+                          <div className="luxury-sub-value-item">
+                            <span className="luxury-sub-value-label">موجودی انبار:</span>
+                            <span className="luxury-sub-value-qty" style={{ color: 'var(--accent)' }}>
+                              {formatNum(sub.current_stock)}
+                            </span>
+                            <span className="luxury-sub-value-unit">{sub.unit_display || sub.unit}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : getGroupedInboundMaterials().length === 0 ? (
+                /* View 1: Main List View Empty State */
+                <div className="luxury-empty-state">
+                  <span>هیچ متریال ورودی یافت نشد.</span>
+                </div>
+              ) : (
+                /* View 1: Main List View List */
+                <div className="luxury-view-fade-in">
+                  {getGroupedInboundMaterials().map((item, index) => (
+                    <div 
+                      key={index} 
+                      className="luxury-material-row interactive"
+                      onClick={() => setSelectedMaterialGroup(item)}
+                    >
+                      <div className="luxury-material-left">
+                        <span className="luxury-material-name">{item.name}</span>
+                      </div>
+                      <div className="luxury-material-value-wrapper">
+                        <span className="luxury-material-qty">{formatNum(item.total_in)}</span>
+                        <span className="luxury-material-unit">{item.unit}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Luxury Outbound Summary Modal */}
+      {isOutboundModalOpen && (
+        <div className="luxury-modal-overlay" onClick={handleCloseOutboundModal}>
+          <div className="luxury-modal-container animate-in" onClick={e => e.stopPropagation()}>
+            <div className="luxury-modal-header">
+              <h3>خلاصه متریال‌های خروجی</h3>
+              <button className="luxury-close-btn" onClick={handleCloseOutboundModal}>
+                ✕
+              </button>
+            </div>
+
+            {/* Breadcrumbs Navigation */}
+            {(selectedOutboundMaterial || selectedOutboundContractor) && (
+              <div className="luxury-breadcrumb">
+                <span 
+                  className="luxury-breadcrumb-item" 
+                  onClick={() => {
+                    setSelectedOutboundMaterial(null);
+                    setSelectedOutboundContractor(null);
+                    setOutboundSearchQuery('');
+                  }}
+                >
+                  لیست متریال‌ها
+                </span>
+                {selectedOutboundMaterial && (
+                  <>
+                    <span className="luxury-breadcrumb-separator">←</span>
+                    <span 
+                      className={`luxury-breadcrumb-item ${!selectedOutboundContractor ? 'active' : ''}`}
+                      onClick={() => {
+                        if (selectedOutboundContractor) {
+                          setSelectedOutboundContractor(null);
+                          setOutboundSearchQuery('');
+                        }
+                      }}
+                    >
+                      {selectedOutboundMaterial.name}
+                    </span>
+                  </>
+                )}
+                {selectedOutboundContractor && (
+                  <>
+                    <span className="luxury-breadcrumb-separator">←</span>
+                    <span className="luxury-breadcrumb-item active">
+                      {selectedOutboundContractor.contractor_name}
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Search Wrapper: Level 1 and Level 2 */}
+            {!selectedOutboundContractor && (
+              <div className="luxury-search-wrapper">
+                <input
+                  type="text"
+                  className="luxury-search-input"
+                  placeholder={!selectedOutboundMaterial ? "جستجوی متریال..." : "جستجوی پیمانکار..."}
+                  value={outboundSearchQuery}
+                  onChange={e => setOutboundSearchQuery(e.target.value)}
+                />
+                <span className="luxury-search-icon">
+                  <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                </span>
+              </div>
+            )}
+
+            <div className="luxury-modal-body">
+              {outboundLoading ? (
+                <div className="luxury-loading-state">
+                  <div className="luxury-spinner"></div>
+                  <span>در حال بارگذاری جزئیات خروجی‌ها...</span>
+                </div>
+              ) : !selectedOutboundMaterial ? (
+                /* Level 1: List of Grouped Outbound Materials */
+                <div className="luxury-view-slide-in">
+                  {getOutboundMaterialsLevel1().length === 0 ? (
+                    <div className="luxury-empty-state">
+                      <span>هیچ متریال خروجی یافت نشد.</span>
+                    </div>
+                  ) : (
+                    getOutboundMaterialsLevel1().map((item, index) => (
+                      <div 
+                        key={index} 
+                        className="luxury-material-row interactive"
+                        onClick={() => {
+                          setSelectedOutboundMaterial(item);
+                          setOutboundSearchQuery('');
+                        }}
+                      >
+                        <div className="luxury-material-left">
+                          <span className="luxury-material-name">{item.name}</span>
+                        </div>
+                        <div className="luxury-material-value-wrapper">
+                          <span className="luxury-material-qty" style={{ color: 'var(--warning)' }}>{formatNum(item.total_qty)}</span>
+                          <span className="luxury-material-unit">{UNIT_LABELS[item.unit] || item.unit}</span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              ) : !selectedOutboundContractor ? (
+                /* Level 2: List of Contractors who received the selected Material */
+                <div className="luxury-view-slide-in">
+                  <button 
+                    className="luxury-back-btn" 
+                    onClick={() => {
+                      setSelectedOutboundMaterial(null);
+                      setOutboundSearchQuery('');
+                    }}
+                  >
+                    <span className="luxury-back-icon">
+                      <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                      </svg>
+                    </span>
+                    بازگشت به لیست متریال‌ها
+                  </button>
+
+                  <div className="luxury-detail-subtitle">
+                    <div style={{ fontWeight: 700, color: 'var(--text-main)' }}>
+                      متریال انتخاب شده: {selectedOutboundMaterial.name}
+                    </div>
+                    <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      لیست پیمانکارانی که این متریال را تحویل گرفته‌اند:
+                    </div>
+                  </div>
+
+                  {getOutboundContractorsLevel2().length === 0 ? (
+                    <div className="luxury-empty-state">
+                      <span>هیچ پیمانکاری یافت نشد.</span>
+                    </div>
+                  ) : (
+                    getOutboundContractorsLevel2().map((item, index) => (
+                      <div 
+                        key={index} 
+                        className="luxury-material-row interactive"
+                        onClick={() => {
+                          setSelectedOutboundContractor(item);
+                          setOutboundSearchQuery('');
+                        }}
+                      >
+                        <div className="luxury-material-left">
+                          <span className="luxury-material-name">{item.contractor_name}</span>
+                        </div>
+                        <div className="luxury-material-value-wrapper">
+                          <span className="luxury-material-qty" style={{ color: 'var(--warning)' }}>{formatNum(item.total_qty)}</span>
+                          <span className="luxury-material-unit">{UNIT_LABELS[selectedOutboundMaterial.unit] || selectedOutboundMaterial.unit}</span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              ) : (
+                /* Level 3: Detailed Tech Specs variation for selected Contractor & Material */
+                <div className="luxury-view-slide-in">
+                  <button 
+                    className="luxury-back-btn" 
+                    onClick={() => {
+                      setSelectedOutboundContractor(null);
+                      setOutboundSearchQuery('');
+                    }}
+                  >
+                    <span className="luxury-back-icon">
+                      <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                      </svg>
+                    </span>
+                    بازگشت به لیست پیمانکاران
+                  </button>
+
+                  <div className="luxury-detail-subtitle">
+                    <div style={{ fontWeight: 700, color: 'var(--text-main)' }}>
+                      پیمانکار: {selectedOutboundContractor.contractor_name}
+                    </div>
+                    <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      متریال: {selectedOutboundMaterial.name} ({UNIT_LABELS[selectedOutboundMaterial.unit] || selectedOutboundMaterial.unit})
+                    </div>
+                  </div>
+
+                  <div className="luxury-details-list">
+                    {getOutboundSpecsLevel3().length === 0 ? (
+                      <div className="luxury-empty-state">
+                        <span>هیچ جزئیات تراکنشی یافت نشد.</span>
+                      </div>
+                    ) : (
+                      getOutboundSpecsLevel3().map((sub, idx) => (
+                        <div key={idx} className="luxury-sub-row animate-in">
+                          <div className="luxury-sub-specs">
+                            <span className="luxury-spec-badge">سایز: {sub.size || '—'}</span>
+                            <span className="luxury-spec-badge">جنس: {sub.material_type || '—'}</span>
+                            <span className="luxury-spec-badge">ضخامت: {sub.thickness || '—'}</span>
+                          </div>
+                          <div className="luxury-sub-values">
+                            <div className="luxury-sub-value-item">
+                              <span className="luxury-sub-value-label">تحویل شده:</span>
+                              <span className="luxury-sub-value-qty" style={{ color: 'var(--warning)' }}>{formatNum(sub.total_qty)}</span>
+                              <span className="luxury-sub-value-unit">{UNIT_LABELS[sub.unit] || sub.unit}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Luxury Approvals Summary Modal */}
+      {isApprovalsModalOpen && (
+        <div className="luxury-modal-overlay" onClick={handleCloseApprovalsModal}>
+          <div className="luxury-modal-container animate-in" onClick={e => e.stopPropagation()}>
+            <div className="luxury-modal-header">
+              <h3>تاییدیه دفتر فنی</h3>
+              <button className="luxury-close-btn" onClick={handleCloseApprovalsModal}>
+                ✕
+              </button>
+            </div>
+
+            {/* Breadcrumbs Navigation */}
+            {(selectedApprovalsContractor || selectedApprovalsMaterial) && (
+              <div className="luxury-breadcrumb">
+                <span 
+                  className="luxury-breadcrumb-item" 
+                  onClick={() => {
+                    setSelectedApprovalsContractor(null);
+                    setSelectedApprovalsMaterial(null);
+                    setApprovalsSearchQuery('');
+                  }}
+                >
+                  لیست پیمانکاران
+                </span>
+                {selectedApprovalsContractor && (
+                  <>
+                    <span className="luxury-breadcrumb-separator">←</span>
+                    <span 
+                      className={`luxury-breadcrumb-item ${!selectedApprovalsMaterial ? 'active' : ''}`}
+                      onClick={() => {
+                        if (selectedApprovalsMaterial) {
+                          setSelectedApprovalsMaterial(null);
+                          setApprovalsSearchQuery('');
+                        }
+                      }}
+                    >
+                      {selectedApprovalsContractor.contractor_name}
+                    </span>
+                  </>
+                )}
+                {selectedApprovalsMaterial && (
+                  <>
+                    <span className="luxury-breadcrumb-separator">←</span>
+                    <span className="luxury-breadcrumb-item active">
+                      {selectedApprovalsMaterial.name}
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Search Wrapper: Level 1 and Level 2 */}
+            {!selectedApprovalsMaterial && (
+              <div className="luxury-search-wrapper">
+                <input
+                  type="text"
+                  className="luxury-search-input"
+                  placeholder={!selectedApprovalsContractor ? "جستجوی پیمانکار..." : "جستجوی متریال..."}
+                  value={approvalsSearchQuery}
+                  onChange={e => setApprovalsSearchQuery(e.target.value)}
+                />
+                <span className="luxury-search-icon">
+                  <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                </span>
+              </div>
+            )}
+
+            <div className="luxury-modal-body">
+              {approvalsLoading ? (
+                <div className="luxury-loading-state">
+                  <div className="luxury-spinner"></div>
+                  <span>در حال بارگذاری اطلاعات تاییدیه‌ها...</span>
+                </div>
+              ) : !selectedApprovalsContractor ? (
+                /* Level 1: List of Contractors with Approvals */
+                <div className="luxury-view-slide-in">
+                  {getApprovalsContractorsLevel1().length === 0 ? (
+                    <div className="luxury-empty-state">
+                      <span>هیچ پیمانکاری با تاییدیه دفتر فنی یافت نشد.</span>
+                    </div>
+                  ) : (
+                    getApprovalsContractorsLevel1().map((item, index) => (
+                      <div 
+                        key={index} 
+                        className="luxury-material-row interactive"
+                        onClick={() => {
+                          setSelectedApprovalsContractor(item);
+                          setApprovalsSearchQuery('');
+                        }}
+                      >
+                        <div className="luxury-material-left" style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                          <span className="luxury-material-name">{item.contractor_name}</span>
+                          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                            <span>تایید شده:</span>
+                            {Object.entries(item.units).map(([unit, val]) => (
+                              <span key={unit} style={{ color: 'var(--success)', fontWeight: 600 }}>
+                                {formatNum(val)} {UNIT_LABELS[unit] || unit}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              ) : !selectedApprovalsMaterial ? (
+                /* Level 2: List of Materials for Selected Contractor */
+                <div className="luxury-view-slide-in">
+                  <button 
+                    className="luxury-back-btn" 
+                    onClick={() => {
+                      setSelectedApprovalsContractor(null);
+                      setApprovalsSearchQuery('');
+                    }}
+                  >
+                    <span className="luxury-back-icon">
+                      <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                      </svg>
+                    </span>
+                    بازگشت به لیست پیمانکاران
+                  </button>
+
+                  <div className="luxury-detail-subtitle">
+                    <div style={{ fontWeight: 700, color: 'var(--text-main)' }}>
+                      پیمانکار: {selectedApprovalsContractor.contractor_name}
+                    </div>
+                    <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      لیست متریال‌های تحویلی و تایید شده:
+                    </div>
+                  </div>
+
+                  {getApprovalsMaterialsLevel2().length === 0 ? (
+                    <div className="luxury-empty-state">
+                      <span>هیچ متریالی یافت نشد.</span>
+                    </div>
+                  ) : (
+                    getApprovalsMaterialsLevel2().map((item, index) => (
+                      <div 
+                        key={index} 
+                        className="luxury-material-row interactive"
+                        onClick={() => {
+                          setSelectedApprovalsMaterial(item);
+                          setApprovalsSearchQuery('');
+                        }}
+                      >
+                        <div className="luxury-material-left">
+                          <span className="luxury-material-name">{item.name}</span>
+                        </div>
+                        <div className="luxury-material-value-wrapper" style={{ gap: '1rem' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.1rem' }}>
+                            <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>تحویلی</span>
+                            <span className="luxury-material-qty" style={{ color: 'var(--warning)', fontSize: '1rem' }}>
+                              {formatNum(item.total_delivered)}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.1rem' }}>
+                            <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>تایید شده</span>
+                            <span className="luxury-material-qty" style={{ color: 'var(--success)', fontSize: '1rem' }}>
+                              {formatNum(item.total_approved)}
+                            </span>
+                          </div>
+                          <span className="luxury-material-unit" style={{ alignSelf: 'center' }}>
+                            {UNIT_LABELS[item.unit] || item.unit}
+                          </span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              ) : (
+                /* Level 3: Tech Specs Variations */
+                <div className="luxury-view-slide-in">
+                  <button 
+                    className="luxury-back-btn" 
+                    onClick={() => {
+                      setSelectedApprovalsMaterial(null);
+                      setApprovalsSearchQuery('');
+                    }}
+                  >
+                    <span className="luxury-back-icon">
+                      <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                      </svg>
+                    </span>
+                    بازگشت به لیست متریال‌ها
+                  </button>
+
+                  <div className="luxury-detail-subtitle">
+                    <div style={{ fontWeight: 700, color: 'var(--text-main)' }}>
+                      پیمانکار: {selectedApprovalsContractor.contractor_name}
+                    </div>
+                    <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      متریال: {selectedApprovalsMaterial.name} ({UNIT_LABELS[selectedApprovalsMaterial.unit] || selectedApprovalsMaterial.unit})
+                    </div>
+                  </div>
+
+                  <div className="luxury-details-list">
+                    {getApprovalsSpecsLevel3().length === 0 ? (
+                      <div className="luxury-empty-state">
+                        <span>هیچ جزئیاتی یافت نشد.</span>
+                      </div>
+                    ) : (
+                      getApprovalsSpecsLevel3().map((sub, idx) => (
+                        <div key={idx} className="luxury-sub-row animate-in">
+                          <div className="luxury-sub-specs">
+                            <span className="luxury-spec-badge">سایز: {sub.size || '—'}</span>
+                            <span className="luxury-spec-badge">جنس: {sub.material_type || '—'}</span>
+                            <span className="luxury-spec-badge">ضخامت: {sub.thickness || '—'}</span>
+                          </div>
+                          <div className="luxury-sub-values" style={{ gap: '1.5rem' }}>
+                            <div className="luxury-sub-value-item">
+                              <span className="luxury-sub-value-label">تحویلی:</span>
+                              <span className="luxury-sub-value-qty" style={{ color: 'var(--warning)', fontSize: '0.92rem' }}>
+                                {formatNum(sub.total_delivered)}
+                              </span>
+                              <span className="luxury-sub-value-unit">{UNIT_LABELS[sub.unit] || sub.unit}</span>
+                            </div>
+                            <div className="luxury-sub-value-item">
+                              <span className="luxury-sub-value-label">تایید شده:</span>
+                              <span className="luxury-sub-value-qty" style={{ color: 'var(--success)', fontSize: '0.92rem' }}>
+                                {formatNum(sub.total_approved)}
+                              </span>
+                              <span className="luxury-sub-value-unit">{UNIT_LABELS[sub.unit] || sub.unit}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -78,7 +78,7 @@ const WarehouseInventory = ({ isModal = false, onClose }) => {
             />
           </div>
           
-          <button className="btn btn-accent" onClick={downloadReport}>
+          <button className="btn btn-excel" onClick={downloadReport}>
             {Icons.download}
             دانلود اکسل موجودی
           </button>
@@ -90,7 +90,7 @@ const WarehouseInventory = ({ isModal = false, onClose }) => {
       ) : (
         <div className="table-container" style={{ flex: 1, maxHeight: isModal ? '60vh' : 'auto', overflowY: 'auto' }}>
           <table className="table">
-            <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
+            <thead>
               <tr>
                 <th>نام متریال</th>
                 <th>رسته کاری</th>
@@ -172,7 +172,7 @@ const WarehouseInventory = ({ isModal = false, onClose }) => {
   }
 
   return (
-    <div className="animate-in">
+    <div className="animate-in" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 2.5rem)', maxWidth: '1400px', margin: '0 auto', paddingTop: '0.5rem' }}>
       {renderContent()}
     </div>
   );

@@ -3,6 +3,7 @@ import api from '../../services/api';
 import { useToast } from '../../contexts/ToastContext';
 import JalaliDatePicker from '../../components/JalaliDatePicker';
 import Select from 'react-select';
+import DocumentScanner, { ScanButton } from '../../components/DocumentScanner';
 
 const selectStyles = {
   control: (base) => ({
@@ -20,6 +21,10 @@ const selectStyles = {
     border: '1px solid var(--border-color)',
     zIndex: 9999
   }),
+  menuPortal: (base) => ({
+    ...base,
+    zIndex: 9999
+  }),
   option: (base, state) => ({
     ...base,
     background: state.isFocused ? 'var(--bg-body)' : 'transparent',
@@ -28,11 +33,11 @@ const selectStyles = {
   }),
   singleValue: (base) => ({
     ...base,
-    color: 'var(--text-main)'
+    color: 'var(--input-text-color)'
   }),
   input: (base) => ({
     ...base,
-    color: 'var(--text-main)'
+    color: 'var(--input-text-color)'
   })
 };
 
@@ -63,6 +68,18 @@ const TransactionForm = ({ onSuccess }) => {
   const [liveInventory, setLiveInventory] = useState(null);
   const { showToast } = useToast();
 
+  const [matSizeVal, setMatSizeVal] = useState('');
+  const [matSizeUnit, setMatSizeUnit] = useState('"');
+  const [matThickVal, setMatThickVal] = useState('');
+  const [matThickUnit, setMatThickUnit] = useState('mm');
+
+  // Scanner state
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scannerTitle, setScannerTitle] = useState('');
+  const [scannerTarget, setScannerTarget] = useState(null); // 'inbound' | 'outbound'
+  const [scannedInbound, setScannedInbound] = useState(null);
+  const [scannedOutbound, setScannedOutbound] = useState(null);
+
   const [formData, setFormData] = useState({
     transaction_type: 'OUT',
     material: '',
@@ -87,7 +104,8 @@ const TransactionForm = ({ onSuccess }) => {
     name: null,
     material_type: null,
     size: null,
-    thickness: null
+    thickness: null,
+    unit: null
   });
 
   useEffect(() => {
@@ -116,12 +134,22 @@ const TransactionForm = ({ onSuccess }) => {
   const availableSizes = outForm.material_type !== null ? [...new Set(level2.map(m => m.size || ''))] : [];
   const level3 = level2.filter(m => (m.size || '') === (outForm.size || ''));
   const availableThicknesses = outForm.size !== null ? [...new Set(level3.map(m => m.thickness || ''))] : [];
+  const level4 = level3.filter(m => (m.thickness || '') === (outForm.thickness || ''));
+  const availableUnits = outForm.thickness !== null ? [...new Set(level4.map(m => m.unit || ''))] : [];
+
+  // Auto-select unit if there's only 1 option
+  useEffect(() => {
+    if (availableUnits.length === 1 && outForm.unit !== availableUnits[0]) {
+      setOutForm(prev => ({ ...prev, unit: availableUnits[0] }));
+    }
+  }, [availableUnits, outForm.unit]);
 
   const resolvedMaterial = materials.find(m => 
     m.name === outForm.name && 
     (m.material_type || '') === (outForm.material_type || '') &&
     (m.size || '') === (outForm.size || '') &&
-    (m.thickness || '') === (outForm.thickness || '')
+    (m.thickness || '') === (outForm.thickness || '') &&
+    m.unit === outForm.unit
   );
 
   useEffect(() => {
@@ -161,7 +189,16 @@ const TransactionForm = ({ onSuccess }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    if (formData.transaction_type === 'OUT') {
+    if (formData.transaction_type === 'IN') {
+      if (!scannedInbound) {
+        showToast('لطفا تصویر بارنامه را اسکن یا بارگذاری کنید.', 'error');
+        return;
+      }
+    } else if (formData.transaction_type === 'OUT') {
+      if (!scannedOutbound) {
+        showToast('لطفا تصویر برگه خروج را اسکن یا بارگذاری کنید.', 'error');
+        return;
+      }
       if (!formData.material) {
         showToast('لطفا تمام مشخصات متریال خروجی را انتخاب کنید.', 'error');
         return;
@@ -178,12 +215,30 @@ const TransactionForm = ({ onSuccess }) => {
 
       // If INBOUND, first create the material
       if (formData.transaction_type === 'IN') {
+        let sizeCombined = '';
+        if (matSizeVal.trim() !== '') {
+          sizeCombined = matSizeUnit === 'NONE' ? matSizeVal.trim() : `${matSizeVal.trim()} ${matSizeUnit}`;
+        }
+
+        let thicknessCombined = '';
+        if (matThickVal.trim() !== '') {
+          if (matThickUnit === 'SCH') {
+            thicknessCombined = `SCH ${matThickVal.trim()}`;
+          } else if (matThickUnit === 'BWG') {
+            thicknessCombined = `${matThickVal.trim()} BWG`;
+          } else if (matThickUnit === 'NONE') {
+            thicknessCombined = matThickVal.trim();
+          } else {
+            thicknessCombined = `${matThickVal.trim()} ${matThickUnit}`;
+          }
+        }
+
         const materialData = {
           name: formData.mat_name,
           work_category: formData.mat_work_category,
-          size: formData.mat_size,
+          size: sizeCombined,
           material_type: formData.mat_material_type,
-          thickness: formData.mat_thickness,
+          thickness: thicknessCombined,
           unit: formData.mat_unit,
           waste_percentage: formData.mat_waste_percentage,
           low_stock_threshold: '0'
@@ -199,9 +254,11 @@ const TransactionForm = ({ onSuccess }) => {
         quantity: formData.quantity,
         date: formData.date,
         bill_of_lading: formData.bill_of_lading,
+        bill_of_lading_image: scannedInbound,
         contractor: formData.contractor,
         contract_number: formData.contract_number,
-        contract_subject: formData.contract_subject
+        contract_subject: formData.contract_subject,
+        exit_document_image: scannedOutbound
       };
 
       await api.post('transactions/', transactionData);
@@ -221,7 +278,13 @@ const TransactionForm = ({ onSuccess }) => {
         mat_thickness: '',
         mat_waste_percentage: '0.00'
       });
-      setOutForm({ name: null, material_type: null, size: null, thickness: null });
+      setMatSizeVal('');
+      setMatSizeUnit('"');
+      setMatThickVal('');
+      setMatThickUnit('mm');
+      setScannedInbound(null);
+      setScannedOutbound(null);
+      setOutForm({ name: null, material_type: null, size: null, thickness: null, unit: null });
       if (onSuccess) onSuccess();
       showToast('تراکنش با موفقیت ثبت شد', 'success');
     } catch (err) {
@@ -257,7 +320,7 @@ const TransactionForm = ({ onSuccess }) => {
             type="button"
             onClick={() => {
               setFormData({...formData, transaction_type: 'OUT', material: ''});
-              setOutForm({ name: null, material_type: null, size: null, thickness: null });
+              setOutForm({ name: null, material_type: null, size: null, thickness: null, unit: null });
             }}
             style={{
               padding: '0.45rem 1rem',
@@ -313,16 +376,62 @@ const TransactionForm = ({ onSuccess }) => {
               </div>
               <div className="form-group">
                 <label className="form-label">سایز <span style={{color: 'red'}}>*</span></label>
-                <input type="text" name="mat_size" className="form-control" placeholder="مثلا: 10 inch" value={formData.mat_size} onChange={handleChange} required />
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.2fr', gap: '0.5rem' }}>
+                  <input 
+                    type="text" 
+                    placeholder="مقدار (مثلا: 10 یا 1/2)" 
+                    className="form-control" 
+                    value={matSizeVal} 
+                    onChange={e => setMatSizeVal(e.target.value)} 
+                    required 
+                  />
+                  <Select 
+                    styles={selectStyles}
+                    menuPortalTarget={document.body}
+                    options={[
+                      { value: '"', label: 'اینچ (")' },
+                      { value: 'mm', label: 'میلی‌متر (mm)' },
+                      { value: 'NONE', label: 'بدون واحد' }
+                    ]}
+                    value={{ value: matSizeUnit, label: matSizeUnit === '"' ? 'اینچ (")' : matSizeUnit === 'mm' ? 'میلی‌متر (mm)' : 'بدون واحد' }}
+                    onChange={selected => setMatSizeUnit(selected.value)}
+                  />
+                </div>
               </div>
               <div className="form-group">
                 <label className="form-label">ضخامت <span style={{color: 'red'}}>*</span></label>
-                <input type="text" name="mat_thickness" className="form-control" placeholder="مثلا: SCH40" value={formData.mat_thickness} onChange={handleChange} required />
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.2fr', gap: '0.5rem' }}>
+                  <input 
+                    type="text" 
+                    placeholder="مقدار (مثلا: 40 یا 80 یا 6)" 
+                    className="form-control" 
+                    value={matThickVal} 
+                    onChange={e => setMatThickVal(e.target.value)} 
+                    required 
+                  />
+                  <Select 
+                    styles={selectStyles}
+                    menuPortalTarget={document.body}
+                    options={[
+                      { value: 'mm', label: 'میلی‌متر (mm)' },
+                      { value: 'SCH', label: 'رده (SCH)' },
+                      { value: 'BWG', label: 'گیج (BWG)' },
+                      { value: '"', label: 'اینچ (")' },
+                      { value: 'NONE', label: 'بدون واحد' }
+                    ]}
+                    value={{
+                      value: matThickUnit,
+                      label: matThickUnit === 'mm' ? 'میلی‌متر (mm)' : matThickUnit === 'SCH' ? 'رده (SCH)' : matThickUnit === 'BWG' ? 'گیج (BWG)' : matThickUnit === '"' ? 'اینچ (")' : 'بدون واحد'
+                    }}
+                    onChange={selected => setMatThickUnit(selected.value)}
+                  />
+                </div>
               </div>
               <div className="form-group">
                 <label className="form-label">رسته کاری <span style={{color: 'red'}}>*</span></label>
                 <Select 
                   styles={selectStyles}
+                  menuPortalTarget={document.body}
                   placeholder="انتخاب رسته کاری..."
                   isClearable
                   options={categories.map(c => ({ value: c.id, label: c.name }))}
@@ -332,12 +441,21 @@ const TransactionForm = ({ onSuccess }) => {
               </div>
               <div className="form-group">
                 <label className="form-label">واحد اندازه‌گیری <span style={{color: 'red'}}>*</span></label>
-                <select name="mat_unit" className="form-control" value={formData.mat_unit} onChange={handleChange} required>
-                  <option value="KG">کیلوگرم (KG)</option>
-                  <option value="M">متر (M)</option>
-                  <option value="SQM">متر مربع (SQM)</option>
-                  <option value="PCS">عدد (PCS)</option>
-                </select>
+                <Select
+                  styles={selectStyles}
+                  menuPortalTarget={document.body}
+                  options={[
+                    { value: 'KG', label: 'کیلوگرم (KG)' },
+                    { value: 'M', label: 'متر (M)' },
+                    { value: 'SQM', label: 'متر مربع (SQM)' },
+                    { value: 'PCS', label: 'عدد (PCS)' }
+                  ]}
+                  value={{
+                    value: formData.mat_unit,
+                    label: formData.mat_unit === 'KG' ? 'کیلوگرم (KG)' : formData.mat_unit === 'M' ? 'متر (M)' : formData.mat_unit === 'SQM' ? 'متر مربع (SQM)' : 'عدد (PCS)'
+                  }}
+                  onChange={selected => setFormData({...formData, mat_unit: selected.value})}
+                />
               </div>
               <div className="form-group">
                 <label className="form-label">درصد پرتی (%) <span style={{color: 'red'}}>*</span></label>
@@ -346,6 +464,19 @@ const TransactionForm = ({ onSuccess }) => {
               <div className="form-group">
                 <label className="form-label">شماره بارنامه <span style={{color: 'red'}}>*</span></label>
                 <input type="text" name="bill_of_lading" className="form-control" value={formData.bill_of_lading} onChange={handleChange} required />
+              </div>
+              <div className="form-group">
+                <label className="form-label">اسکن عکس بارنامه</label>
+                <ScanButton
+                  label="اسکن عکس بارنامه"
+                  scannedImage={scannedInbound}
+                  onScan={() => {
+                    setScannerTitle('اسکن عکس بارنامه');
+                    setScannerTarget('inbound');
+                    setScannerOpen(true);
+                  }}
+                  onRemove={() => setScannedInbound(null)}
+                />
               </div>
               <div className="form-group">
                 <label className="form-label">مقدار / تعداد <span style={{color: 'red'}}>*</span></label>
@@ -368,6 +499,7 @@ const TransactionForm = ({ onSuccess }) => {
                 <label className="form-label">پیمانکار <span style={{color: 'red'}}>*</span></label>
                 <Select 
                   styles={selectStyles}
+                  menuPortalTarget={document.body}
                   placeholder="انتخاب پیمانکار..."
                   isClearable
                   options={contractors.map(c => ({ value: c.id, label: `${c.first_name} ${c.last_name}` }))}
@@ -383,6 +515,19 @@ const TransactionForm = ({ onSuccess }) => {
                 <label className="form-label">موضوع قرارداد <span style={{color: 'red'}}>*</span></label>
                 <input type="text" name="contract_subject" className="form-control" value={formData.contract_subject} onChange={handleChange} required />
               </div>
+              <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                <label className="form-label">اسکن برگه خروج</label>
+                <ScanButton
+                  label="اسکن برگه خروج"
+                  scannedImage={scannedOutbound}
+                  onScan={() => {
+                    setScannerTitle('اسکن برگه خروج');
+                    setScannerTarget('outbound');
+                    setScannerOpen(true);
+                  }}
+                  onRemove={() => setScannedOutbound(null)}
+                />
+              </div>
 
               {/* OUTBOUND MATERIAL CASCADING DROPDOWNS */}
               <div className="form-group" style={{ gridColumn: 'span 2', marginTop: '0.5rem', borderTop: '1px dashed var(--border-color)', paddingTop: '1rem', paddingBottom: '0.5rem' }}>
@@ -393,6 +538,7 @@ const TransactionForm = ({ onSuccess }) => {
                 <label className="form-label">نوع متریال <span style={{color: 'red'}}>*</span></label>
                 <Select 
                   styles={selectStyles}
+                  menuPortalTarget={document.body}
                   placeholder="-- انتخاب نوع --"
                   isClearable
                   options={availableNames.map(n => ({ value: n, label: n }))}
@@ -406,6 +552,7 @@ const TransactionForm = ({ onSuccess }) => {
                   <label className="form-label">جنس (Material Type) <span style={{color: 'red'}}>*</span></label>
                   <Select 
                     styles={selectStyles}
+                    menuPortalTarget={document.body}
                     placeholder="-- انتخاب جنس --"
                     isClearable
                     options={availableTypes.map(t => ({ value: t || '', label: t || 'بدون مشخصه جنس' }))}
@@ -420,6 +567,7 @@ const TransactionForm = ({ onSuccess }) => {
                   <label className="form-label">سایز <span style={{color: 'red'}}>*</span></label>
                   <Select 
                     styles={selectStyles}
+                    menuPortalTarget={document.body}
                     placeholder="-- انتخاب سایز --"
                     isClearable
                     options={availableSizes.map(s => ({ value: s || '', label: s || 'بدون سایز' }))}
@@ -434,6 +582,7 @@ const TransactionForm = ({ onSuccess }) => {
                   <label className="form-label">ضخامت <span style={{color: 'red'}}>*</span></label>
                   <Select 
                     styles={selectStyles}
+                    menuPortalTarget={document.body}
                     placeholder="-- انتخاب ضخامت --"
                     isClearable
                     options={availableThicknesses.map(t => ({ value: t || '', label: t || 'بدون ضخامت' }))}
@@ -444,6 +593,21 @@ const TransactionForm = ({ onSuccess }) => {
               )}
 
               {outForm.thickness !== null && (
+                <div className="form-group">
+                  <label className="form-label">واحد اندازه‌گیری <span style={{color: 'red'}}>*</span></label>
+                  <Select 
+                    styles={selectStyles}
+                    menuPortalTarget={document.body}
+                    placeholder="-- انتخاب واحد --"
+                    isClearable
+                    options={availableUnits.map(u => ({ value: u || '', label: u || 'بدون واحد' }))}
+                    value={outForm.unit !== null ? { value: outForm.unit || '', label: outForm.unit || 'بدون واحد' } : null}
+                    onChange={selected => setOutForm({...outForm, unit: selected ? selected.value : null})}
+                  />
+                </div>
+              )}
+
+              {outForm.unit !== null && (
                 <div className="form-group">
                   <label className="form-label">مقدار / تعداد خروج <span style={{color: 'red'}}>*</span></label>
                   <input type="number" step="0.01" name="quantity" className="form-control" value={formData.quantity} onChange={handleChange} required />
@@ -474,6 +638,19 @@ const TransactionForm = ({ onSuccess }) => {
           </button>
         </div>
       </form>
+      {/* Document Scanner Modal */}
+      <DocumentScanner
+        isOpen={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        title={scannerTitle}
+        onSave={(imageData) => {
+          if (scannerTarget === 'inbound') {
+            setScannedInbound(imageData);
+          } else {
+            setScannedOutbound(imageData);
+          }
+        }}
+      />
     </div>
   );
 };

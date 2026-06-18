@@ -10,6 +10,8 @@ const JalaliDatePicker = ({ value, onChange, name, placeholder = 'انتخاب �
   const [isOpen, setIsOpen] = useState(false);
   const [currentJalali, setCurrentJalali] = useState({ jy: 1403, jm: 1, jd: 1 });
   const [displayValue, setDisplayValue] = useState('');
+  const [isMonthDropdownOpen, setIsMonthDropdownOpen] = useState(false);
+  const [isYearDropdownOpen, setIsYearDropdownOpen] = useState(false);
   const wrapperRef = useRef(null);
 
   useEffect(() => {
@@ -32,6 +34,8 @@ const JalaliDatePicker = ({ value, onChange, name, placeholder = 'انتخاب �
     const handleClickOutside = (event) => {
       if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
         setIsOpen(false);
+        setIsMonthDropdownOpen(false);
+        setIsYearDropdownOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -45,6 +49,8 @@ const JalaliDatePicker = ({ value, onChange, name, placeholder = 'انتخاب �
       onChange({ target: { name, value: gDateString } });
     }
     setIsOpen(false);
+    setIsMonthDropdownOpen(false);
+    setIsYearDropdownOpen(false);
   };
 
   const handleMonthChange = (step) => {
@@ -58,6 +64,8 @@ const JalaliDatePicker = ({ value, onChange, name, placeholder = 'انتخاب �
       jy--;
     }
     setCurrentJalali({ ...currentJalali, jy, jm });
+    setIsMonthDropdownOpen(false);
+    setIsYearDropdownOpen(false);
   };
 
   const daysInMonth = jDaysInMonth(currentJalali.jy, currentJalali.jm);
@@ -76,7 +84,13 @@ const JalaliDatePicker = ({ value, onChange, name, placeholder = 'انتخاب �
 
   const paddingSize = getStartPadding();
   const paddingArray = Array.from({ length: paddingSize }, (_, i) => i);
-  const years = Array.from({ length: 16 }, (_, i) => 1405 + i); // range from 1405 to 1420
+  
+  // بازه سال از ۱۴۰۵ تا ۱۰ سال آینده (یا کمتر در صورتی که تاریخ انتخابی قدیمی باشد)
+  const minStartYear = 1405;
+  const maxEndYear = 1415;
+  const startYear = Math.min(minStartYear, currentJalali.jy);
+  const endYear = Math.max(maxEndYear, currentJalali.jy);
+  const years = Array.from({ length: endYear - startYear + 1 }, (_, i) => startYear + i);
 
   return (
     <div ref={wrapperRef} style={{ position: 'relative', width: '100%' }}>
@@ -107,54 +121,144 @@ const JalaliDatePicker = ({ value, onChange, name, placeholder = 'انتخاب �
               ▶
             </button>
             
-            <div style={{ display: 'flex', gap: '4px', flexGrow: 1, justifyContent: 'center' }}>
+            <div style={{ display: 'flex', gap: '6px', flexGrow: 1, justifyContent: 'center' }}>
               {/* Select Month */}
-              <select
-                value={currentJalali.jm}
-                onChange={(e) => setCurrentJalali({ ...currentJalali, jm: Number(e.target.value) })}
-                style={{
-                  background: 'var(--bg-main)',
-                  color: 'var(--text-main)',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: '6px',
-                  padding: '4px 6px',
-                  fontSize: '0.8rem',
-                  fontWeight: 'bold',
-                  cursor: 'pointer',
-                  outline: 'none',
-                  fontFamily: 'Vazirmatn, sans-serif'
-                }}
-              >
-                {MONTHS.map((m, index) => (
-                  <option key={m} value={index + 1} style={{ backgroundColor: 'var(--bg-surface-solid)', color: 'var(--text-main)' }}>
-                    {m}
-                  </option>
-                ))}
-              </select>
+              <div style={{ position: 'relative' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMonthDropdownOpen(!isMonthDropdownOpen);
+                    setIsYearDropdownOpen(false);
+                  }}
+                  style={{
+                    background: 'var(--bg-main)',
+                    color: 'var(--text-main)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '6px',
+                    padding: '4px 10px',
+                    fontSize: '0.8rem',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    fontFamily: 'Vazirmatn, sans-serif',
+                    outline: 'none'
+                  }}
+                >
+                  {MONTHS[currentJalali.jm - 1]}
+                  <span style={{ fontSize: '0.55rem', opacity: 0.7 }}>▼</span>
+                </button>
+                {isMonthDropdownOpen && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '100%',
+                    right: 0,
+                    marginTop: '4px',
+                    width: '120px',
+                    maxHeight: '150px',
+                    overflowY: 'auto',
+                    backgroundColor: 'var(--bg-surface-solid)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '8px',
+                    boxShadow: 'var(--shadow-md)',
+                    zIndex: 10000,
+                    padding: '4px 0'
+                  }} className="custom-scroll">
+                    {MONTHS.map((m, index) => (
+                      <div
+                        key={m}
+                        onClick={() => {
+                          setCurrentJalali({ ...currentJalali, jm: index + 1 });
+                          setIsMonthDropdownOpen(false);
+                        }}
+                        style={{
+                          padding: '6px 12px',
+                          fontSize: '0.8rem',
+                          cursor: 'pointer',
+                          textAlign: 'right',
+                          backgroundColor: currentJalali.jm === index + 1 ? 'rgba(99, 102, 241, 0.15)' : 'transparent',
+                          color: currentJalali.jm === index + 1 ? 'var(--primary-500)' : 'var(--text-main)',
+                          fontWeight: currentJalali.jm === index + 1 ? 'bold' : 'normal',
+                          transition: 'background var(--duration-fast)'
+                        }}
+                        className="dropdown-item-hover"
+                      >
+                        {m}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               {/* Select Year */}
-              <select
-                value={currentJalali.jy}
-                onChange={(e) => setCurrentJalali({ ...currentJalali, jy: Number(e.target.value) })}
-                style={{
-                  background: 'var(--bg-main)',
-                  color: 'var(--text-main)',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: '6px',
-                  padding: '4px 6px',
-                  fontSize: '0.8rem',
-                  fontWeight: 'bold',
-                  cursor: 'pointer',
-                  outline: 'none',
-                  fontFamily: 'Vazirmatn, sans-serif'
-                }}
-              >
-                {years.map(year => (
-                  <option key={year} value={year} style={{ backgroundColor: 'var(--bg-surface-solid)', color: 'var(--text-main)' }}>
-                    {year}
-                  </option>
-                ))}
-              </select>
+              <div style={{ position: 'relative' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsYearDropdownOpen(!isYearDropdownOpen);
+                    setIsMonthDropdownOpen(false);
+                  }}
+                  style={{
+                    background: 'var(--bg-main)',
+                    color: 'var(--text-main)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '6px',
+                    padding: '4px 10px',
+                    fontSize: '0.8rem',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    fontFamily: 'Vazirmatn, sans-serif',
+                    outline: 'none'
+                  }}
+                >
+                  {currentJalali.jy}
+                  <span style={{ fontSize: '0.55rem', opacity: 0.7 }}>▼</span>
+                </button>
+                {isYearDropdownOpen && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    marginTop: '4px',
+                    width: '100px',
+                    maxHeight: '150px',
+                    overflowY: 'auto',
+                    backgroundColor: 'var(--bg-surface-solid)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '8px',
+                    boxShadow: 'var(--shadow-md)',
+                    zIndex: 10000,
+                    padding: '4px 0'
+                  }} className="custom-scroll">
+                    {years.map(year => (
+                      <div
+                        key={year}
+                        onClick={() => {
+                          setCurrentJalali({ ...currentJalali, jy: year });
+                          setIsYearDropdownOpen(false);
+                        }}
+                        style={{
+                          padding: '6px 12px',
+                          fontSize: '0.8rem',
+                          cursor: 'pointer',
+                          textAlign: 'center',
+                          backgroundColor: currentJalali.jy === year ? 'rgba(99, 102, 241, 0.15)' : 'transparent',
+                          color: currentJalali.jy === year ? 'var(--primary-500)' : 'var(--text-main)',
+                          fontWeight: currentJalali.jy === year ? 'bold' : 'normal',
+                          transition: 'background var(--duration-fast)'
+                        }}
+                        className="dropdown-item-hover"
+                      >
+                        {year}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             <button 
