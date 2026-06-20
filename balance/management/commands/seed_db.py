@@ -165,4 +165,10 @@ class Command(BaseCommand):
             TechnicalOfficeApproval.objects.bulk_create(apps[i:i+BATCH_SIZE], batch_size=BATCH_SIZE)
             self.stdout.write(self.style.SUCCESS(f"  -> Created {min(i + BATCH_SIZE, len(apps))}/{len(apps)} Approvals..."))
 
-        self.stdout.write(self.style.SUCCESS("✅ Massive database seeding completed successfully!"))
+        # 8. Rebuild precalculated global material balance table
+        self.stdout.write("8. Re-building precalculated GlobalMaterialBalance table...")
+        from balance.services import rebuild_all_global_balances
+        rebuild_all_global_balances()
+        self.stdout.write(self.style.SUCCESS("  -> GlobalMaterialBalance table populated!"))
+
+        self.stdout.write(self.style.SUCCESS("Massive database seeding completed successfully!"))

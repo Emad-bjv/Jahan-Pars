@@ -2,6 +2,8 @@ import React, { useContext, useState, useCallback, useEffect } from 'react';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { AuthContext } from '../../contexts/AuthContext';
 import UserProfileModal from '../../components/UserProfileModal';
+import NotificationBell from '../../components/NotificationBell';
+import DownloadManagerDropdown from '../../components/DownloadManagerDropdown';
 
 /* ─── SVG Icons ────────────────────────────────────────────────── */
 const Icons = {
@@ -230,14 +232,31 @@ const DashboardLayout = () => {
         </div>
       </aside>
 
-      <main style={{
-        flexGrow: 1,
-        padding: '1rem 1.25rem',
-        overflowY: 'auto',
-        maxHeight: '100vh',
-      }}>
-        <Outlet />
-      </main>
+      <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1, height: '100vh', overflow: 'hidden' }}>
+        {/* Global Dashboard Layout Top Bar */}
+        <header style={{
+          display: 'flex',
+          justifyContent: 'flex-end',
+          alignItems: 'center',
+          gap: '1rem',
+          padding: '0.75rem 1.25rem',
+          background: 'var(--bg-surface)',
+          borderBottom: '1px solid var(--border-color)',
+          flexShrink: 0,
+          zIndex: 100
+        }}>
+          <DownloadManagerDropdown />
+          <NotificationBell />
+        </header>
+
+        <main style={{
+          flexGrow: 1,
+          padding: '1rem 1.25rem',
+          overflowY: 'auto',
+        }}>
+          <Outlet />
+        </main>
+      </div>
 
       {/* User Profile Modal */}
       {isProfileModalOpen && (

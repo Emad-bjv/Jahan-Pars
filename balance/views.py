@@ -53,6 +53,14 @@ class DownloadReportThrottle(UserRateThrottle):
     scope = 'download'
 
 
+from rest_framework.pagination import PageNumberPagination
+
+class StandardResultsSetPagination(PageNumberPagination):
+    page_size = 50
+    page_size_query_param = 'page_size'
+    max_page_size = 1000
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # AuditMixin: ثبت خودکار لاگ تغییرات
 # ─────────────────────────────────────────────────────────────────────────────
@@ -259,6 +267,7 @@ class MaterialItemViewSet(AuditMixin, viewsets.ModelViewSet):
 # ─────────────────────────────────────────────────────────────────────────────
 class WarehouseTransactionViewSet(AuditMixin, viewsets.ModelViewSet):
     serializer_class = WarehouseTransactionSerializer
+    pagination_class = StandardResultsSetPagination
 
     def get_permissions(self):
         if self.action in ('list', 'retrieve'):
@@ -271,6 +280,18 @@ class WarehouseTransactionViewSet(AuditMixin, viewsets.ModelViewSet):
         ).order_by('-date', '-created_at')
 
         params = self.request.query_params
+
+        # جستجوی متنی پیشرفته
+        search = params.get('search')
+        if search:
+            from django.db.models import Q
+            qs = qs.filter(
+                Q(material__name__icontains=search) |
+                Q(contractor__first_name__icontains=search) |
+                Q(contractor__last_name__icontains=search) |
+                Q(bill_of_lading__icontains=search) |
+                Q(contract_number__icontains=search)
+            )
 
         # اعتبارسنجی type
         txn_type = params.get('type', '').upper()
@@ -345,6 +366,7 @@ class WarehouseTransactionViewSet(AuditMixin, viewsets.ModelViewSet):
 # ─────────────────────────────────────────────────────────────────────────────
 class TechnicalOfficeApprovalViewSet(AuditMixin, viewsets.ModelViewSet):
     serializer_class = TechnicalOfficeApprovalSerializer
+    pagination_class = StandardResultsSetPagination
 
     def get_permissions(self):
         return [IsAuthenticated(), IsTechnicalOffice()]
@@ -359,6 +381,17 @@ class TechnicalOfficeApprovalViewSet(AuditMixin, viewsets.ModelViewSet):
             return qs.none()
 
         params = self.request.query_params
+
+        # جستجوی متنی پیشرفته
+        search = params.get('search')
+        if search:
+            from django.db.models import Q
+            qs = qs.filter(
+                Q(material__name__icontains=search) |
+                Q(contractor__first_name__icontains=search) |
+                Q(contractor__last_name__icontains=search) |
+                Q(contract_number__icontains=search)
+            )
         import re
         date_pattern = re.compile(r'^\d{4}-\d{2}-\d{2}$')
 
@@ -447,7 +480,143 @@ def download_global_balance(request):
             status=status.HTTP_429_TOO_MANY_REQUESTS,
         )
 
-    return get_global_balance_excel_response(is_superuser=request.user.is_superuser)
+    from .models import ExportTask
+    from .tasks import generate_global_balance_excel_task
+
+    resume_from = request.GET.get('resume_from')
+
+    # ایجاد تسک جدید در دیتابیس
+    task = ExportTask.objects.create(status='PENDING', task_type='excel', progress=0, eta=0)
+    
+    # اجرای تسک سلری به صورت غیرهمزمان با تعیین شناسه تسک همسان با شناسه دیتابیس
+    generate_global_balance_excel_task.apply_async(
+        args=(str(task.id), request.user.is_superuser, resume_from),
+        task_id=str(task.id)
+    )
+
+    return Response({
+        'task_id': str(task.id),
+        'status': task.status,
+        'progress': task.progress,
+        'eta': task.eta
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, CanDownloadBalanceReport])
+def download_global_pdf(request):
+    throttle = DownloadReportThrottle()
+    if not throttle.allow_request(request, None):
+        return Response(
+            {'detail': 'تعداد درخواست‌های دانلود شما بیش از حد مجاز است. لطفاً بعداً مجدداً تلاش کنید.'},
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+
+    from .models import ExportTask
+    from .tasks import generate_global_balance_pdf_task
+
+    resume_from = request.GET.get('resume_from')
+
+    # ایجاد تسک جدید در دیتابیس
+    task = ExportTask.objects.create(status='PENDING', task_type='pdf', progress=0, eta=0)
+    
+    # اجرای تسک سلری به صورت غیرهمزمان با تعیین شناسه تسک همسان با شناسه دیتابیس
+    generate_global_balance_pdf_task.apply_async(
+        args=(str(task.id), request.user.is_superuser, resume_from),
+        task_id=str(task.id)
+    )
+
+    return Response({
+        'task_id': str(task.id),
+        'status': task.status,
+        'progress': task.progress,
+        'eta': task.eta
+    })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def export_task_status(request, task_id):
+    """
+    بررسی وضعیت پیشرفت تسک تولید فایل اکسل گزارش موازنه کل در پس‌زمینه.
+    """
+    from .models import ExportTask
+    from django.shortcuts import get_object_or_404
+
+    task = get_object_or_404(ExportTask, pk=task_id)
+    return Response({
+        'task_id': str(task.id),
+        'status': task.status,
+        'progress': task.progress,
+        'eta': task.eta,
+        'file_url': task.file_url,
+        'error_message': task.error_message,
+        'created_at': task.created_at
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def cancel_export_task(request, task_id):
+    """
+    لغو تسک تولید گزارش در پس‌زمینه و متوقف کردن فرآیند سلری.
+    """
+    from .models import ExportTask
+    from django.shortcuts import get_object_or_404
+    from jahanpars.celery import app
+    
+    task = get_object_or_404(ExportTask, pk=task_id)
+    if task.status in ('PENDING', 'PROCESSING'):
+        # لغو تسک در Celery
+        try:
+            app.control.revoke(str(task.id), terminate=True, reply=False)
+        except Exception:
+            # حتی اگر اتصال به ورکرها برقرار نباشد، تسک را در دیتابیس لغو می‌کنیم
+            pass
+        
+        # به‌روزرسانی وضعیت در دیتابیس
+        task.status = 'FAILURE'
+        task.error_message = 'توسط کاربر لغو شد.'
+        task.progress = 0
+        task.eta = 0
+        task.save()
+        return Response({'status': 'CANCELLED'})
+        
+    return Response({'status': task.status})
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def active_export_tasks(request):
+    """
+    دریافت لیست تسک‌های فعال اخیر (برای لود مجدد در صورت رفرش صفحه فرانت‌اند).
+    تسک‌هایی که در وضعیت PENDING یا PROCESSING هستند و در ۱ ساعت اخیر ساخته شده‌اند.
+    """
+    from .models import ExportTask
+    from django.utils import timezone
+    from datetime import timedelta
+    
+    one_hour_ago = timezone.now() - timedelta(hours=1)
+    
+    # دریافت تسک‌های فعال
+    tasks = ExportTask.objects.filter(
+        status__in=('PENDING', 'PROCESSING'),
+        created_at__gte=one_hour_ago
+    )
+    
+    data = []
+    for task in tasks:
+        data.append({
+            'task_id': str(task.id),
+            'status': task.status,
+            'progress': task.progress,
+            'eta': task.eta,
+            'type': task.task_type,
+            'file_url': task.file_url,
+            'error_message': task.error_message,
+            'created_at': task.created_at.isoformat() if task.created_at else None
+        })
+    return Response(data)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -463,20 +632,29 @@ def download_balance_pdf(request):
             status=status.HTTP_429_TOO_MANY_REQUESTS,
         )
 
+    contractor_ids_str = request.GET.get('contractor_ids')
+    material_ids_str   = request.GET.get('material_ids')
     contractor_id = request.GET.get('contractor_id')
     material_id   = request.GET.get('material_id')
     from_date     = request.GET.get('from_date')
     to_date       = request.GET.get('to_date')
     status_filter = request.GET.get('status')
 
-    if contractor_id and contractor_id.isdigit():
-        contractor_id = int(contractor_id)
-    if material_id and material_id.isdigit():
-        material_id = int(material_id)
+    contractor_ids = []
+    if contractor_ids_str:
+        contractor_ids = [int(x.strip()) for x in contractor_ids_str.split(',') if x.strip().isdigit()]
+    elif contractor_id and contractor_id.isdigit():
+        contractor_ids = [int(contractor_id)]
+
+    material_ids = []
+    if material_ids_str:
+        material_ids = [int(x.strip()) for x in material_ids_str.split(',') if x.strip().isdigit()]
+    elif material_id and material_id.isdigit():
+        material_ids = [int(material_id)]
 
     return get_balance_pdf_response(
-        contractor_id=contractor_id, 
-        material_id=material_id,
+        contractor_ids=contractor_ids or None, 
+        material_ids=material_ids or None,
         from_date=from_date,
         to_date=to_date,
         status_filter=status_filter
@@ -891,9 +1069,40 @@ def technical_approval_summary(request):
 @permission_classes([IsAuthenticated, IsTechnicalOffice])
 def global_balance_rows(request):
     """
-    دریافت ردیف‌های گزارش موازنه متریال کل کارگاه برای نمایش در داشبورد فرانت‌اند.
+    دریافت ردیف‌های گزارش موازنه متریال کل کارگاه برای نمایش در داشبورد فرانت‌اند با پشتیبانی از فیلتر و صفحه‌بندی.
     """
     from .services import get_global_material_balance_rows_data
-    rows = get_global_material_balance_rows_data()
-    return Response(rows)
+    
+    # خواندن فیلترها و صفحه‌بندی
+    search = request.GET.get('search')
+    category = request.GET.get('category')
+    contractor = request.GET.get('contractor')
+    material = request.GET.get('material')
+    status_filter = request.GET.get('status')
+    return_filters = request.GET.get('return_filters') == 'true'
+    
+    page = request.GET.get('page', '1')
+    page_size = request.GET.get('page_size', '10')
+    
+    try:
+        page = int(page)
+    except ValueError:
+        page = 1
+        
+    try:
+        page_size = int(page_size)
+    except ValueError:
+        page_size = 10
+        
+    data = get_global_material_balance_rows_data(
+        search=search,
+        category=category,
+        contractor=contractor,
+        material=material,
+        status=status_filter,
+        page=page,
+        page_size=page_size,
+        return_filters=return_filters
+    )
+    return Response(data)
 

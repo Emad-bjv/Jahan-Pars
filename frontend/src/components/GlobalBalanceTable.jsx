@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import api from '../services/api';
 
 const GlobalBalanceTable = () => {
   const [data, setData] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [fetching, setFetching] = useState(false);
   const [error, setError] = useState(null);
 
   // Filters State
@@ -13,61 +14,110 @@ const GlobalBalanceTable = () => {
   const [selectedMaterial, setSelectedMaterial] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
 
+  // Dropdown options
+  const [categories, setCategories] = useState([]);
+  const [contractors, setContractors] = useState([]);
+  const [materials, setMaterials] = useState([]);
+  const [statuses, setStatuses] = useState([]);
+
   // Pagination & Sorting State
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
+  const [totalCount, setTotalCount] = useState(0);
   const [expandedRow, setExpandedRow] = useState(null);
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
 
-  // Fetch balance rows
+  // AbortController ref for cancelling in-flight requests
+  const abortControllerRef = useRef(null);
+  const filtersLoadedRef = useRef(false);
+
+  // Debounce search query — 700ms to allow comfortable typing
   useEffect(() => {
-    const fetchBalanceRows = async () => {
-      try {
-        setLoading(true);
-        const res = await api.get('balance/global-rows/');
-        setData(res.data);
-      } catch (err) {
-        console.error("Error fetching global balance rows", err);
-        setError("خطا در بارگذاری اطلاعات موازنه کل.");
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchBalanceRows();
-  }, []);
+    const handler = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+      setCurrentPage(1);
+    }, 700);
+    return () => clearTimeout(handler);
+  }, [searchQuery]);
 
   // Reset pagination on filter change
   useEffect(() => {
     setCurrentPage(1);
     setExpandedRow(null);
-  }, [searchQuery, selectedCategory, selectedContractor, selectedMaterial, selectedStatus]);
+  }, [selectedCategory, selectedContractor, selectedMaterial, selectedStatus]);
 
-  // Extract unique filter options dynamically from data
-  const categories = [...new Set(data.map(item => item.work_category).filter(Boolean))].sort();
-  const contractors = [...new Set(data.map(item => item.contractor_name).filter(Boolean))].sort();
-  const materials = [...new Set(data.map(item => item.material_name).filter(Boolean))].sort();
-  const statuses = [...new Set(data.map(item => item.balance_label).filter(Boolean))].sort();
+  // Fetch balance rows with filters and pagination
+  const fetchBalanceRows = useCallback(async () => {
+    // Cancel any previous in-flight request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
-  // Filtering Logic
-  const filteredData = data.filter(item => {
-    const matchesSearch = 
-      item.contractor_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.material_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.contract_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (item.contract_subject && item.contract_subject.toLowerCase().includes(searchQuery.toLowerCase()));
+    try {
+      setFetching(true);
+      const params = {
+        page: currentPage,
+        page_size: itemsPerPage,
+      };
+      if (debouncedSearchQuery) params.search = debouncedSearchQuery;
+      if (selectedCategory) params.category = selectedCategory;
+      if (selectedContractor) params.contractor = selectedContractor;
+      if (selectedMaterial) params.material = selectedMaterial;
+      if (selectedStatus) params.status = selectedStatus;
 
-    const matchesCategory = selectedCategory ? item.work_category === selectedCategory : true;
-    const matchesContractor = selectedContractor ? item.contractor_name === selectedContractor : true;
-    const matchesMaterial = selectedMaterial ? item.material_name === selectedMaterial : true;
-    const matchesStatus = selectedStatus ? item.balance_label === selectedStatus : true;
+      // Query static filter lists on first load
+      if (!filtersLoadedRef.current) {
+        params.return_filters = 'true';
+      }
 
-    return matchesSearch && matchesCategory && matchesContractor && matchesMaterial && matchesStatus;
-  });
+      const res = await api.get('balance/global-rows/', { params, signal: controller.signal });
 
-  // Pagination Logic
-  const totalPages = Math.ceil(filteredData.length / itemsPerPage);
-  const indexOfLastItem = currentPage * itemsPerPage;
-  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
-  const currentItems = filteredData.slice(indexOfFirstItem, indexOfLastItem);
+      // Don't update state if this request was aborted
+      if (controller.signal.aborted) return;
+
+      if (res.data.results) {
+        setData(res.data.results);
+        setTotalCount(res.data.count);
+        if (res.data.filters) {
+          filtersLoadedRef.current = true;
+          if (res.data.filters.categories.length > 0) setCategories(res.data.filters.categories);
+          if (res.data.filters.contractors.length > 0) setContractors(res.data.filters.contractors);
+          if (res.data.filters.materials.length > 0) setMaterials(res.data.filters.materials);
+          if (res.data.filters.statuses.length > 0) setStatuses(res.data.filters.statuses);
+        }
+      } else {
+        setData(res.data);
+        setTotalCount(res.data.length);
+      }
+    } catch (err) {
+      // Ignore abort errors
+      if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError' || err?.name === 'AbortError') return;
+      console.error("Error fetching global balance rows", err);
+      setError("خطا در بارگذاری اطلاعات موازنه کل.");
+    } finally {
+      if (!controller.signal.aborted) {
+        setFetching(false);
+        setInitialLoading(false);
+      }
+    }
+  }, [currentPage, debouncedSearchQuery, selectedCategory, selectedContractor, selectedMaterial, selectedStatus]);
+
+  useEffect(() => {
+    fetchBalanceRows();
+    // Cleanup on unmount
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, [fetchBalanceRows]);
+
+  // Server-side mapping for pagination view
+  const totalPages = Math.ceil(totalCount / itemsPerPage);
+  const indexOfFirstItem = (currentPage - 1) * itemsPerPage;
+  const indexOfLastItem = Math.min(currentPage * itemsPerPage, totalCount);
 
   const handlePageChange = (pageNumber) => {
     setCurrentPage(pageNumber);
@@ -78,7 +128,7 @@ const GlobalBalanceTable = () => {
     if (label.includes("مازاد")) return "status-badge-success";
     if (label.includes("کسری")) return "status-badge-danger";
     if (label.includes("ایده‌آل")) return "status-badge-warning";
-    return "status-badge-info"; // For under review
+    return "status-badge-info";
   };
 
   const formatNumber = (num) => {
@@ -86,17 +136,32 @@ const GlobalBalanceTable = () => {
     return new Intl.NumberFormat('fa-IR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num);
   };
 
-  const toggleRowExpand = (index) => {
-    if (expandedRow === index) {
-      setExpandedRow(null);
-    } else {
-      setExpandedRow(index);
-    }
+  const formatInteger = (num) => {
+    if (num == null || isNaN(num)) return '۰';
+    return new Intl.NumberFormat('fa-IR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(num);
   };
 
-  if (loading) {
+  const toggleRowExpand = (index) => {
+    setExpandedRow(expandedRow === index ? null : index);
+  };
+
+  const getPageNumbers = () => {
+    const pages = [];
+    const delta = 2;
+    for (let i = 1; i <= totalPages; i++) {
+      if (i === 1 || i === totalPages || (i >= currentPage - delta && i <= currentPage + delta)) {
+        pages.push(i);
+      } else if (pages[pages.length - 1] !== '...') {
+        pages.push('...');
+      }
+    }
+    return pages;
+  };
+
+  // Only show full-screen spinner on very first mount
+  if (initialLoading) {
     return (
-      <div className="section-panel" style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}>
+      <div className="section-panel" style={{ display: 'flex', justifyContent: 'center', padding: '3rem', marginTop: '2rem' }}>
         <div className="spinner-border text-primary" role="status">
           <span className="visually-hidden">در حال بارگذاری...</span>
         </div>
@@ -143,47 +208,28 @@ const GlobalBalanceTable = () => {
         <div className="balance-dropdowns-wrap">
           <div className="filter-select-group">
             <label>رسته کاری</label>
-            <select
-              className="form-select"
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-            >
+            <select className="form-select" value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)}>
               <option value="">همه رسته‌ها</option>
               {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
             </select>
           </div>
-
           <div className="filter-select-group">
             <label>پیمانکار</label>
-            <select
-              className="form-select"
-              value={selectedContractor}
-              onChange={(e) => setSelectedContractor(e.target.value)}
-            >
+            <select className="form-select" value={selectedContractor} onChange={(e) => setSelectedContractor(e.target.value)}>
               <option value="">همه پیمانکاران</option>
               {contractors.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
-
           <div className="filter-select-group">
             <label>کالا</label>
-            <select
-              className="form-select"
-              value={selectedMaterial}
-              onChange={(e) => setSelectedMaterial(e.target.value)}
-            >
+            <select className="form-select" value={selectedMaterial} onChange={(e) => setSelectedMaterial(e.target.value)}>
               <option value="">همه کالاها</option>
               {materials.map(m => <option key={m} value={m}>{m}</option>)}
             </select>
           </div>
-
           <div className="filter-select-group">
             <label>وضعیت موازنه</label>
-            <select
-              className="form-select"
-              value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
-            >
+            <select className="form-select" value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value)}>
               <option value="">همه وضعیت‌ها</option>
               {statuses.map(st => <option key={st} value={st}>{st}</option>)}
             </select>
@@ -191,8 +237,24 @@ const GlobalBalanceTable = () => {
         </div>
       </div>
 
-      {/* Table Section */}
-      <div className="table-container" style={{ marginTop: '1.5rem' }}>
+      {/* Inline loading progress bar — never unmounts table/filters */}
+      <div style={{ height: '3px', marginTop: '1.5rem', marginBottom: '-3px', borderRadius: '2px', overflow: 'hidden', position: 'relative' }}>
+        {fetching && (
+          <div style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            height: '100%',
+            width: '100%',
+            background: 'linear-gradient(90deg, transparent, var(--primary-500), transparent)',
+            animation: 'balanceLoadingSlide 1.2s ease-in-out infinite',
+            borderRadius: '2px',
+          }} />
+        )}
+      </div>
+
+      {/* Table Section — opacity fade during fetch, never unmounts */}
+      <div className="table-container" style={{ transition: 'opacity 0.2s ease', opacity: fetching ? 0.5 : 1 }}>
         <table className="table table-lg balance-rows-table">
           <thead>
             <tr>
@@ -207,8 +269,8 @@ const GlobalBalanceTable = () => {
             </tr>
           </thead>
           <tbody>
-            {currentItems.length > 0 ? (
-              currentItems.map((row, idx) => {
+            {data.length > 0 ? (
+              data.map((row, idx) => {
                 const globalIdx = indexOfFirstItem + idx + 1;
                 const isExpanded = expandedRow === idx;
                 const isStringBalance = typeof row.balance === 'string';
@@ -222,7 +284,7 @@ const GlobalBalanceTable = () => {
                       style={{ cursor: 'pointer' }}
                     >
                       <td style={{ textAlign: 'center', fontWeight: '500', color: 'var(--text-muted)' }}>
-                        {globalIdx}
+                        {formatInteger(globalIdx)}
                       </td>
                       <td style={{ fontWeight: '600' }}>{row.contractor_name}</td>
                       <td style={{ fontWeight: '500' }}>{row.material_name}</td>
@@ -282,7 +344,6 @@ const GlobalBalanceTable = () => {
                                 <span className="val">{row.work_category}</span>
                               </div>
                             </div>
-
                             <div className="balance-detail-section">
                               <h6>مشخصات کالا</h6>
                               <div className="balance-detail-field">
@@ -302,7 +363,6 @@ const GlobalBalanceTable = () => {
                                 <span className="val">{row.thickness}</span>
                               </div>
                             </div>
-
                             <div className="balance-detail-section">
                               <h6>جزئیات و محاسبات موازنه</h6>
                               <div className="balance-detail-field">
@@ -344,33 +404,50 @@ const GlobalBalanceTable = () => {
       {totalPages > 1 && (
         <div className="balance-pagination-container">
           <div className="pagination-info">
-            نمایش ردیف‌های {formatNumber(indexOfFirstItem + 1)} تا {formatNumber(Math.min(indexOfLastItem, filteredData.length))} از {formatNumber(filteredData.length)} ردیف موازنه
+            نمایش ردیف‌های {formatInteger(indexOfFirstItem + 1)} تا {formatInteger(indexOfLastItem)} از {formatInteger(totalCount)} ردیف موازنه
           </div>
           <div className="pagination-buttons">
             <button 
               className="pagination-btn" 
               onClick={() => handlePageChange(currentPage - 1)}
               disabled={currentPage === 1}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
             >
-              قبلی
+              <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+              </svg>
+              <span>قبلی</span>
             </button>
             
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map(pageNum => (
-              <button
-                key={pageNum}
-                className={`pagination-btn-number ${currentPage === pageNum ? 'active' : ''}`}
-                onClick={() => handlePageChange(pageNum)}
-              >
-                {formatNumber(pageNum)}
-              </button>
-            ))}
+            {getPageNumbers().map((pageNum, idx) => {
+              if (pageNum === '...') {
+                return (
+                  <span key={`ellipsis-${idx}`} style={{ color: 'var(--text-dim)', padding: '0 0.5rem', alignSelf: 'center', userSelect: 'none' }}>
+                    ...
+                  </span>
+                );
+              }
+              return (
+                <button
+                  key={pageNum}
+                  className={`pagination-btn-number ${currentPage === pageNum ? 'active' : ''}`}
+                  onClick={() => handlePageChange(pageNum)}
+                >
+                  {formatInteger(pageNum)}
+                </button>
+              );
+            })}
 
             <button 
               className="pagination-btn" 
               onClick={() => handlePageChange(currentPage + 1)}
               disabled={currentPage === totalPages}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
             >
-              بعدی
+              <span>بعدی</span>
+              <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+              </svg>
             </button>
           </div>
         </div>

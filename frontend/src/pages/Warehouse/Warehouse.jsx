@@ -7,6 +7,8 @@ import TransactionList from './TransactionList';
 import { SkeletonTable } from '../../components/Skeleton';
 import WarehouseInventory from '../../components/WarehouseInventory';
 import { useToast } from '../../contexts/ToastContext';
+import DownloadManagerDropdown from '../../components/DownloadManagerDropdown';
+import { useDownloadManager } from '../../contexts/DownloadContext';
 
 
 /* ─── SVG Icons ──────────────────────────────────────────────── */
@@ -47,6 +49,7 @@ const Warehouse = () => {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
   const { showToast } = useToast();
+  const { triggerExport } = useDownloadManager();
 
   const handleLogout = () => {
     logout();
@@ -57,21 +60,8 @@ const Warehouse = () => {
     setRefreshTrigger(prev => prev + 1);
   };
 
-  const downloadReport = async () => {
-    try {
-      const { default: api } = await import('../../services/api');
-      const response = await api.get('balance/download-warehouse/', { responseType: 'blob' });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', 'warehouse_inventory.xlsx');
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    } catch (error) {
-      console.error("Error downloading report", error);
-      showToast('خطا در دانلود گزارش انبار.', 'error');
-    }
+  const downloadReport = () => {
+    triggerExport('warehouse_excel', {}, 'خروجی اکسل موجودی انبار');
   };
 
   const getInitials = (name) => {
@@ -125,6 +115,7 @@ const Warehouse = () => {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <DownloadManagerDropdown />
           {/* User Badge */}
           <div 
             className={`sidebar-user ${getRoleClass(user)}`} 

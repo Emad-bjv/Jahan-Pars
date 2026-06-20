@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../services/api';
 import { useToast } from '../../contexts/ToastContext';
+import { useDownloadManager } from '../../contexts/DownloadContext';
 import { SkeletonTable } from '../../components/Skeleton';
 import JalaliDatePicker from '../../components/JalaliDatePicker';
 import { formatPersianNumber, toPersianDigits } from '../../utils/persianNumbers';
@@ -80,28 +81,69 @@ const ApprovalsManager = () => {
   const [isListOpen, setIsListOpen] = useState(true);
   
   const { showToast } = useToast();
+  const { triggerExport } = useDownloadManager();
 
-  const fetchData = async () => {
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [approvalsLoading, setApprovalsLoading] = useState(false);
+
+  const fetchStaticData = async () => {
     setLoading(true);
     try {
-      const [appRes, contRes, matRes] = await Promise.all([
-        api.get('approvals/'),
+      const [contRes, matRes] = await Promise.all([
         api.get('contractors/'),
         api.get('materials/')
       ]);
-      setApprovals(appRes.data.results || appRes.data);
       setContractors(contRes.data.results || contRes.data);
       setMaterials(matRes.data.results || matRes.data);
     } catch (err) {
-      console.error("Error fetching data", err);
+      console.error("Error fetching static data", err);
     } finally {
       setLoading(false);
     }
   };
 
+  const fetchApprovals = async (page) => {
+    setApprovalsLoading(true);
+    try {
+      const res = await api.get('approvals/', { params: { page } });
+      if (res.data.results) {
+        setApprovals(res.data.results);
+        setTotalCount(res.data.count);
+        setTotalPages(Math.ceil(res.data.count / 50));
+      } else {
+        setApprovals(res.data);
+        setTotalCount(res.data.length);
+        setTotalPages(1);
+      }
+    } catch (err) {
+      console.error("Error fetching approvals", err);
+    } finally {
+      setApprovalsLoading(false);
+    }
+  };
+
+  const getPageNumbers = () => {
+    const pages = [];
+    const delta = 2;
+    for (let i = 1; i <= totalPages; i++) {
+      if (i === 1 || i === totalPages || (i >= currentPage - delta && i <= currentPage + delta)) {
+        pages.push(i);
+      } else if (pages[pages.length - 1] !== '...') {
+        pages.push('...');
+      }
+    }
+    return pages;
+  };
+
   useEffect(() => {
-    fetchData();
+    fetchStaticData();
   }, []);
+
+  useEffect(() => {
+    fetchApprovals(currentPage);
+  }, [currentPage]);
 
   useEffect(() => {
     const fetchLiveReceived = async () => {
@@ -168,7 +210,7 @@ const ApprovalsManager = () => {
         material: '', approved_quantity: '', contract_number: '', contract_subject: '' 
       });
       showToast('تاییدیه با موفقیت ثبت شد', 'success');
-      fetchData();
+      fetchApprovals(currentPage);
     } catch (err) {
       showToast(err.response?.data ? JSON.stringify(err.response.data) : 'خطا در ثبت تاییدیه دفتر فنی', 'error');
     } finally {
@@ -176,20 +218,8 @@ const ApprovalsManager = () => {
     }
   };
 
-  const downloadReport = async () => {
-    try {
-      const response = await api.get('balance/download-approvals/', { responseType: 'blob' });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', 'approvals_list.xlsx');
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    } catch (error) {
-      console.error("Error downloading report", error);
-      showToast('خطا در دانلود گزارش تاییدیه‌ها.', 'error');
-    }
+  const downloadReport = () => {
+    triggerExport('approvals_excel', {}, 'خروجی اکسل لیست تاییدیه‌ها');
   };
 
   const filteredMaterials = allowedMaterialIds 
@@ -365,7 +395,7 @@ const ApprovalsManager = () => {
         >
           <div className="section-title-icon">{Icons.check}</div>
           لیست تاییدیه‌ها
-          {!loading && <span style={{ marginRight: '1rem', fontSize: '0.8rem', color: 'var(--text-dim)', fontWeight: 500 }}>{toPersianDigits(approvals.length)} تاییدیه</span>}
+          {!loading && <span style={{ marginRight: '1rem', fontSize: '0.8rem', color: 'var(--text-dim)', fontWeight: 500 }}>{toPersianDigits(totalCount)} تاییدیه</span>}
           <svg 
             width="18" height="18" 
             viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" 
@@ -377,7 +407,7 @@ const ApprovalsManager = () => {
         
         <div className={`collapse-wrapper ${isListOpen ? 'open' : 'closed'}`} style={{ flex: 1, minHeight: 0 }}>
           <div className="collapse-inner" style={{ height: '100%' }}>
-            {loading ? (
+            {loading || approvalsLoading ? (
               <SkeletonTable rows={4} cols={6} />
             ) : (
               <div className="table-container" style={{ flex: 1, maxHeight: '600px', overflowY: 'auto' }}>
@@ -426,6 +456,59 @@ const ApprovalsManager = () => {
                 )}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* Pagination Bar */}
+        {totalPages > 1 && (
+          <div className="balance-pagination-container" style={{ padding: '1rem', borderTop: '1px solid var(--border-color)', backgroundColor: 'var(--bg-surface-solid)', borderRadius: '0 0 var(--radius-lg) var(--radius-lg)', marginTop: 'auto', flexShrink: 0 }}>
+            <div className="pagination-info">
+              نمایش ردیف‌های {formatPersianNumber((currentPage - 1) * 50 + 1)} تا {formatPersianNumber(Math.min(currentPage * 50, totalCount))} از {formatPersianNumber(totalCount)} تاییدیه
+            </div>
+            <div className="pagination-buttons">
+              <button 
+                className="pagination-btn" 
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
+              >
+                <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                </svg>
+                <span>قبلی</span>
+              </button>
+              
+              {getPageNumbers().map((pageNum, idx) => {
+                if (pageNum === '...') {
+                  return (
+                    <span key={`ellipsis-${idx}`} style={{ color: 'var(--text-dim)', padding: '0 0.5rem', alignSelf: 'center', userSelect: 'none' }}>
+                      ...
+                    </span>
+                  );
+                }
+                return (
+                  <button
+                    key={pageNum}
+                    className={`pagination-btn-number ${currentPage === pageNum ? 'active' : ''}`}
+                    onClick={() => setCurrentPage(pageNum)}
+                  >
+                    {formatPersianNumber(pageNum)}
+                  </button>
+                );
+              })}
+
+              <button 
+                className="pagination-btn" 
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
+              >
+                <span>بعدی</span>
+                <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                </svg>
+              </button>
+            </div>
           </div>
         )}
         </div>

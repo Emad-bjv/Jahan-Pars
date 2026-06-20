@@ -33,8 +33,14 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
     
-    // اگر ارور 401 بود و قبلا تلاش مجدد نکرده بودیم
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    // بررسی این‌که آیا درخواست برای نقاط پایانی احراز هویت است یا خیر
+    const isAuthRequest = originalRequest.url && (
+      originalRequest.url.includes('token/') || 
+      originalRequest.url.includes('token')
+    );
+
+    // اگر ارور 401 بود، قبلا تلاش مجدد نکرده بودیم و درخواست مربوط به احراز هویت نبود
+    if (error.response?.status === 401 && !originalRequest._retry && !isAuthRequest) {
       originalRequest._retry = true;
       const refreshToken = localStorage.getItem('refresh_token');
       
@@ -55,12 +61,18 @@ api.interceptors.response.use(
           // اگر رفرش توکن هم منقضی شده بود، کاربر باید لاگ‌اوت شود
           localStorage.removeItem('access_token');
           localStorage.removeItem('refresh_token');
-          window.location.href = '/login';
+          if (window.location.pathname !== '/login') {
+            window.location.href = '/login';
+          }
           return Promise.reject(refreshError);
         }
       } else {
-        // بدون رفرش توکن، ریدایرکت به لاگین
-        window.location.href = '/login';
+        // بدون رفرش توکن، توکن‌های نامعتبر را پاک کرده و در صورت نیاز ریدایرکت می‌کنیم
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+        if (window.location.pathname !== '/login') {
+          window.location.href = '/login';
+        }
       }
     }
     return Promise.reject(error);

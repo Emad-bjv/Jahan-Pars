@@ -392,84 +392,143 @@ def _build_contractor_sheet(ws, contractor, rows):
     ws.page_setup.fitToWidth = 1
 
 
-def _build_global_sheet(ws, rows):
+def _build_global_sheet(ws, rows, task_id=None, start_row_idx=0, wb=None):
     """
     ساخت شیت گزارش موازنه کل کارگاه.
     """
     ws.sheet_view.rightToLeft = True  # RTL برای کل شیت
     TOTAL_COLS = 16
 
-    # ── ۱. ردیف عنوان اصلی ─────────────────────────────────────────────────
-    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=TOTAL_COLS)
-    title_cell = ws.cell(row=1, column=1)
-    _apply_header_style(
-        title_cell,
-        "گزارش موازنه متریال کل - شرکت جهانپارس",
-        font_size=16,
-        bg_color=COLOR_HEADER_BG,
-    )
-    ws.row_dimensions[1].height = 38
 
-    # ── ۲. ردیف توضیح فرمول ────────────────────────────────────────────────
-    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=TOTAL_COLS)
-    sub_cell = ws.cell(row=2, column=1)
-    sub_cell.value = "موازنه = کل تحویلی − (کار تاییدشده + پرتی مجاز)    |    سبز: مازاد پرداخت    |    قرمز: کسری متریال    |    زرد: ایده‌آل"
-    sub_cell.font  = Font(name='Calibri', size=9, italic=True, color="4472C4")
-    sub_cell.fill  = PatternFill(fill_type='solid', fgColor="EBF3FB")
-    sub_cell.alignment = _rtl_alignment(horizontal='center')
-    ws.row_dimensions[2].height = 18
+    if start_row_idx == 0:
+        # ── ۱. ردیف عنوان اصلی ─────────────────────────────────────────────────
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=TOTAL_COLS)
+        title_cell = ws.cell(row=1, column=1)
+        _apply_header_style(
+            title_cell,
+            "گزارش موازنه متریال کل - شرکت جهانپارس",
+            font_size=16,
+            bg_color=COLOR_HEADER_BG,
+        )
+        ws.row_dimensions[1].height = 38
 
-    # ── ۳. بلوک اطلاعات گزارش (ردیف ۳ و ۴ - به صورت فشرده) ────────────────────────
-    # ردیف ۳: تاریخ گزارش و توضیح
-    _write_info_cell(ws, 3, 1, 2, "تاریخ گزارش :", is_label=True)
-    _write_info_cell(ws, 3, 3, 15, str(jdatetime.date.today()), is_label=False)
-    ws.row_dimensions[3].height = 20
+        # ── ۲. ردیف توضیح فرمول ────────────────────────────────────────────────
+        ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=TOTAL_COLS)
+        sub_cell = ws.cell(row=2, column=1)
+        sub_cell.value = "موازنه = کل تحویلی − (کار تاییدشده + پرتی مجاز)    |    سبز: مازاد پرداخت    |    قرمز: کسری متریال    |    زرد: ایده‌آل"
+        sub_cell.font  = Font(name='Calibri', size=9, italic=True, color="4472C4")
+        sub_cell.fill  = PatternFill(fill_type='solid', fgColor="EBF3FB")
+        sub_cell.alignment = _rtl_alignment(horizontal='center')
+        ws.row_dimensions[2].height = 18
 
-    # ردیف ۴: حوزه گزارش
-    _write_info_cell(ws, 4, 1, 2, "حوزه گزارش :", is_label=True)
-    _write_info_cell(ws, 4, 3, 15, "موازنه کل (به تفکیک تمامی پیمانکاران)", is_label=False)
-    ws.row_dimensions[4].height = 20
+        # ── ۳. بلوک اطلاعات گزارش (ردیف ۳ و ۴ - به صورت فشرده) ────────────────────────
+        # ردیف ۳: تاریخ گزارش و توضیح
+        _write_info_cell(ws, 3, 1, 2, "تاریخ گزارش :", is_label=True)
+        _write_info_cell(ws, 3, 3, 15, str(jdatetime.date.today()), is_label=False)
+        ws.row_dimensions[3].height = 20
 
-    # ── ۴. خط جداکننده ردیف ۵ ──────────────────────────────────────────────
-    ws.merge_cells(start_row=5, start_column=1, end_row=5, end_column=TOTAL_COLS)
-    sep = ws.cell(row=5, column=1)
-    sep.fill = PatternFill(fill_type='solid', fgColor=COLOR_HEADER_BG)
-    ws.row_dimensions[5].height = 6
+        # ردیف ۴: حوزه گزارش
+        _write_info_cell(ws, 4, 1, 2, "حوزه گزارش :", is_label=True)
+        _write_info_cell(ws, 4, 3, 15, "موازنه کل (به تفکیک تمامی پیمانکاران)", is_label=False)
+        ws.row_dimensions[4].height = 20
 
-    # ── ۵. هدر ستون‌های جدول (ردیف ۶) ─────────────────────────────────────
-    HEADERS = [
-        "ردیف",
-        "پیمانکار",
-        "شماره قرارداد",
-        "موضوع قرارداد",
-        "رسته کاری",
-        "نام کالا",
-        "سایز",
-        "جنس",
-        "ضخامت",
-        "واحد",
-        "کل متریال\nتحویلی",
-        "مقدار کار\nتاییدشده",
-        "درصد\nپرتی (%)",
-        "پرتی\nمجاز",
-        "موازنه\n(انحراف)",
-        "وضعیت نهایی",
-    ]
-    COL_WIDTHS = [6, 22, 16, 25, 16, 24, 12, 14, 12, 8, 14, 14, 10, 12, 14, 18]
+        # ── ۴. خط جداکننده ردیف ۵ ──────────────────────────────────────────────
+        ws.merge_cells(start_row=5, start_column=1, end_row=5, end_column=TOTAL_COLS)
+        sep = ws.cell(row=5, column=1)
+        sep.fill = PatternFill(fill_type='solid', fgColor=COLOR_HEADER_BG)
+        ws.row_dimensions[5].height = 6
 
-    for col_idx, (header, width) in enumerate(zip(HEADERS, COL_WIDTHS), start=1):
-        cell = ws.cell(row=6, column=col_idx)
-        _apply_header_style(cell, header, font_size=10, bg_color=COLOR_SUB_HEADER_BG)
-        cell.alignment = _rtl_alignment(horizontal='center', wrap=True)
-        ws.column_dimensions[get_column_letter(col_idx)].width = width
+        # ── ۵. هدر ستون‌های جدول (ردیف ۶) ─────────────────────────────────────
+        HEADERS = [
+            "ردیف",
+            "پیمانکار",
+            "شماره قرارداد",
+            "موضوع قرارداد",
+            "رسته کاری",
+            "نام کالا",
+            "سایز",
+            "جنس",
+            "ضخامت",
+            "واحد",
+            "کل متریال\nتحویلی",
+            "مقدار کار\nتاییدشده",
+            "درصد\nپرتی (%)",
+            "پرتی\nمجاز",
+            "موازنه\n(انحراف)",
+            "وضعیت نهایی",
+        ]
+        COL_WIDTHS = [6, 22, 16, 25, 16, 24, 12, 14, 12, 8, 14, 14, 10, 12, 14, 18]
 
-    ws.row_dimensions[6].height = 38
+        for col_idx, (header, width) in enumerate(zip(HEADERS, COL_WIDTHS), start=1):
+            cell = ws.cell(row=6, column=col_idx)
+            _apply_header_style(cell, header, font_size=10, bg_color=COLOR_SUB_HEADER_BG)
+            cell.alignment = _rtl_alignment(horizontal='center', wrap=True)
+            ws.column_dimensions[get_column_letter(col_idx)].width = width
+
+        ws.row_dimensions[6].height = 38
 
     # ── ۶. ردیف‌های داده (از ردیف ۷) ─────────────────────────────────────
     NUM_FMT = '#,##0.00'
 
-    for row_offset, row_data in enumerate(rows):
+    import time
+    import os
+    from django.conf import settings
+    
+    start_time = time.time()
+    total_rows = len(rows)
+
+    for row_offset in range(start_row_idx, total_rows):
+        row_data = rows[row_offset]
+        if task_id and total_rows > 0 and (row_offset % 500 == 0 or row_offset == total_rows - 1):
+            progress_pct = int(((row_offset + 1) / total_rows) * 95)
+            elapsed = time.time() - start_time
+            avg_time_per_row = elapsed / (row_offset - start_row_idx + 1) if (row_offset - start_row_idx) > 0 else 0.001
+            remaining_rows = total_rows - (row_offset + 1)
+            eta_seconds = int(remaining_rows * avg_time_per_row)
+            
+            from .models import ExportTask
+            task_obj = ExportTask.objects.filter(pk=task_id).first()
+            
+            # Check for cancellation or pause first
+            if task_obj and task_obj.status not in ('PENDING', 'PROCESSING'):
+                # Save temp file immediately before aborting
+                if wb:
+                    temp_dir = os.path.join(settings.MEDIA_ROOT, 'temp_exports')
+                    os.makedirs(temp_dir, exist_ok=True)
+                    for f in os.listdir(temp_dir):
+                        if f.startswith(f"temp_{task_id}_"):
+                            try:
+                                os.remove(os.path.join(temp_dir, f))
+                            except Exception:
+                                pass
+                    temp_file_name = f"temp_{task_id}_{row_offset}.xlsx"
+                    try:
+                        wb.save(os.path.join(temp_dir, temp_file_name))
+                    except Exception:
+                        pass
+                raise ValueError("توسط کاربر لغو شد.")
+                
+            ExportTask.objects.filter(pk=task_id).update(progress=progress_pct, eta=eta_seconds)
+
+            # Periodic saving (every 3000 rows) to minimize disk writes
+            if row_offset % 3000 == 0 or row_offset == total_rows - 1:
+                if wb:
+                    temp_dir = os.path.join(settings.MEDIA_ROOT, 'temp_exports')
+                    os.makedirs(temp_dir, exist_ok=True)
+                    for f in os.listdir(temp_dir):
+                        if f.startswith(f"temp_{task_id}_"):
+                            try:
+                                os.remove(os.path.join(temp_dir, f))
+                            except Exception:
+                                pass
+                    temp_file_name = f"temp_{task_id}_{row_offset}.xlsx"
+                    try:
+                        wb.save(os.path.join(temp_dir, temp_file_name))
+                    except Exception:
+                        pass
+
         excel_row = row_offset + 7
+
 
         _apply_data_style(ws.cell(excel_row, 1),  row_offset + 1,                    row_offset, horizontal='center')
         _apply_data_style(ws.cell(excel_row, 2),  row_data['contractor_name'],       row_offset)
@@ -693,97 +752,317 @@ def generate_material_balance_excel(
     return output.getvalue()
 
 
-def get_global_material_balance_rows_data() -> list[dict]:
+def get_global_material_balance_rows_data(
+    search=None,
+    category=None,
+    contractor=None,
+    material=None,
+    status=None,
+    page=1,
+    page_size=None,
+    return_filters=False
+) -> list[dict] | dict:
     """
-    دریافت اطلاعات موازنه متریال کل کارگاه به صورت تجمیعی.
+    دریافت اطلاعات موازنه متریال کل کارگاه به صورت تجمیعی با پشتیبانی از فیلتر، جستجو و صفحه‌بندی (نسخه بهینه‌شده با جدول پیش‌محاسبه).
     """
-    from .models import WarehouseTransaction, TechnicalOfficeApproval, MaterialItem, Contractor
+    from .models import GlobalMaterialBalance, WorkCategory, Contractor, MaterialItem
+    from django.db.models import Q
+
+    # 1. Base Queryset with select_related for performance
+    qs = GlobalMaterialBalance.objects.select_related('contractor', 'material', 'material__work_category').all()
+
+    # 2. Apply Filters (contractor, material, category, status, search)
+    if contractor:
+        parts = contractor.split()
+        if len(parts) >= 2:
+            qs = qs.filter(contractor__first_name__icontains=parts[0], contractor__last_name__icontains=parts[1])
+        else:
+            qs = qs.filter(Q(contractor__first_name__icontains=contractor) | Q(contractor__last_name__icontains=contractor))
+
+    if material:
+        qs = qs.filter(material__name__icontains=material)
+
+    if category:
+        qs = qs.filter(material__work_category__name__icontains=category)
+
+    if status:
+        # Map frontend status filter strings to stored database balance_label values
+        status_map = {
+            "کسری متریال (بدهکار به کارفرما)": "کسری متریال ✘",
+            "مازاد پرداخت (جنس اضافه نزد پیمانکار)": "مازاد پرداخت ✔",
+            "موازنه ایده‌آل (بدون انحراف)": "ایده‌آل ✔",
+            "در دست بررسی برای تایید دفتر فنی": "در دست بررسی ⏳"
+        }
+        mapped_status = status_map.get(status, status)
+        qs = qs.filter(balance_label=mapped_status)
+
+    if search:
+        search_q = Q(material__name__icontains=search) | \
+                   Q(contractor__first_name__icontains=search) | \
+                   Q(contractor__last_name__icontains=search) | \
+                   Q(contract_number__icontains=search) | \
+                   Q(contract_subject__icontains=search)
+        qs = qs.filter(search_q)
+
+    # 3. Sort (Same sorting order as previous version: contractor, material, contract_number, contract_subject)
+    qs = qs.order_by(
+        'contractor__first_name', 'contractor__last_name',
+        'material__name',
+        'contract_number',
+        'contract_subject'
+    )
+
+    # 4. Build rows and Paginate
+    if page_size is None:
+        # Excel mode: use .values() to prevent loading 80k model objects (reduces time from 7.4s to 1.3s)
+        qs_values = qs.values(
+            'contractor__first_name',
+            'contractor__last_name',
+            'material__name',
+            'material__size',
+            'material__material_type',
+            'material__thickness',
+            'material__unit',
+            'material__waste_percentage',
+            'material__work_category__name',
+            'contract_number',
+            'contract_subject',
+            'total_issued',
+            'approved_work',
+            'allowed_waste',
+            'balance',
+            'balance_label'
+        )
+        UNIT_MAP = {
+            'KG': 'کیلوگرم',
+            'M': 'متر',
+            'SQM': 'متر مربع',
+            'PCS': 'عدد',
+        }
+        rows = []
+        for row in qs_values:
+            balance_val = row['balance']
+            first_name = row['contractor__first_name'] or ''
+            last_name = row['contractor__last_name'] or ''
+            full_name = f"{first_name} {last_name}".strip()
+            rows.append({
+                'contractor_name': full_name if full_name else "—",
+                'contract_number': row['contract_number'] or "—",
+                'contract_subject': row['contract_subject'] or "—",
+                'work_category':  row['material__work_category__name'] or "—",
+                'material_name':  row['material__name'],
+                'size':           row['material__size'] or "—",
+                'mat_type':       row['material__material_type'] or "—",
+                'thickness':      row['material__thickness'] or "—",
+                'unit':           UNIT_MAP.get(row['material__unit'], row['material__unit'] or "—"),
+                'total_issued':   float(row['total_issued']),
+                'approved_work':  float(row['approved_work']),
+                'waste_pct':      float(row['material__waste_percentage'] or 0),
+                'allowed_waste':  float(row['allowed_waste']),
+                'balance':        float(balance_val) if balance_val is not None else "در دست بررسی برای تایید دفتر فنی",
+                'balance_label':  row['balance_label'],
+            })
+        return rows
+    else:
+        # Pagination mode: slice query and load only 10 model objects
+        total_count = qs.count()
+        start = (page - 1) * page_size
+        end = start + page_size
+        page_qs = qs[start:end]
+
+        rows = []
+        for row in page_qs:
+            mat = row.material
+            cont = row.contractor
+            work_category = mat.work_category
+
+            rows.append({
+                'contractor_name': cont.get_full_name() if cont else "—",
+                'contract_number': row.contract_number or "—",
+                'contract_subject': row.contract_subject or "—",
+                'work_category':  work_category.name if work_category else "—",
+                'material_name':  mat.name,
+                'size':           mat.size or "—",
+                'mat_type':       mat.material_type or "—",
+                'thickness':      mat.thickness or "—",
+                'unit':           mat.get_unit_display(),
+                'total_issued':   float(row.total_issued),
+                'approved_work':  float(row.approved_work),
+                'waste_pct':      float(mat.waste_percentage),
+                'allowed_waste':  float(row.allowed_waste),
+                'balance':        float(row.balance) if row.balance is not None else "در دست بررسی برای تایید دفتر فنی",
+                'balance_label':  row.balance_label,
+            })
+
+    # Fetch unique filters (only if return_filters=True, typically on initial load)
+    if return_filters:
+        # Optimizing filter options using distinct values
+        cats_list = list(WorkCategory.objects.filter(materials__global_balances__isnull=False).values_list('name', flat=True).distinct().order_by('name'))
+        conts_list = [f"{c['first_name']} {c['last_name']}".strip() for c in Contractor.objects.filter(global_balances__isnull=False).values('first_name', 'last_name').distinct().order_by('first_name', 'last_name')]
+        mats_list = list(MaterialItem.objects.filter(global_balances__isnull=False).values_list('name', flat=True).distinct().order_by('name'))
+    else:
+        cats_list, conts_list, mats_list = [], [], []
+
+    return {
+        'count': total_count,
+        'results': rows,
+        'filters': {
+            'categories': cats_list,
+            'contractors': conts_list,
+            'materials': mats_list,
+            'statuses': ["کسری متریال (بدهکار به کارفرما)", "مازاد پرداخت (جنس اضافه نزد پیمانکار)", "موازنه ایده‌آل (بدون انحراف)", "در دست بررسی برای تایید دفتر فنی"]
+        }
+    }
+
+
+def update_global_balance_for_key(contractor_id, material_id, contract_number, contract_subject):
+    """
+    محاسبه موازنه برای یک کلید خاص و ذخیره یا به‌روزرسانی آن در جدول پیش‌محاسبه شده.
+    """
+    from .models import WarehouseTransaction, TechnicalOfficeApproval, MaterialItem, GlobalMaterialBalance
     from django.db.models import Sum
     from decimal import Decimal, ROUND_HALF_UP
 
-    # ─── ۱. بارگذاری و جمع‌بندی داده‌های تراکنش خروجی انبار کل ─────────────────
+    contract_number = contract_number or ''
+    contract_subject = contract_subject or ''
+
+    if not contractor_id or not material_id:
+        return
+
+    # 1. محاسبه جمع صادر شده (تراکنش خروج)
+    total_issued = WarehouseTransaction.objects.filter(
+        transaction_type='OUT',
+        contractor_id=contractor_id,
+        material_id=material_id,
+        contract_number=contract_number,
+        contract_subject=contract_subject
+    ).aggregate(total=Sum('quantity'))['total'] or Decimal('0')
+
+    # 2. بررسی تاییدیه فنی
+    approval_qs = TechnicalOfficeApproval.objects.filter(
+        contractor_id=contractor_id,
+        material_id=material_id,
+        contract_number=contract_number,
+        contract_subject=contract_subject
+    )
+
+    is_approved = approval_qs.exists()
+
+    # اگر تراکنشی وجود نداشت و تاییدیه‌ای هم نبود، رکورد قبلی را پاک می‌کنیم
+    if total_issued == Decimal('0') and not is_approved:
+        GlobalMaterialBalance.objects.filter(
+            contractor_id=contractor_id,
+            material_id=material_id,
+            contract_number=contract_number,
+            contract_subject=contract_subject
+        ).delete()
+        return
+
+    try:
+        material = MaterialItem.objects.get(pk=material_id)
+    except MaterialItem.DoesNotExist:
+        return
+
+    if not is_approved:
+        approved_work = Decimal('0')
+        allowed_waste = Decimal('0')
+        balance = None
+        balance_label = "در دست بررسی ⏳"
+    else:
+        approved_work = approval_qs.aggregate(total=Sum('approved_quantity'))['total'] or Decimal('0')
+        waste_pct = material.waste_percentage / Decimal('100')
+        allowed_waste = (approved_work * waste_pct).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        balance = (total_issued - (approved_work + allowed_waste)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        balance_label = _balance_label(balance)
+
+    # به‌روزرسانی یا ایجاد در جدول پیش‌محاسبه
+    GlobalMaterialBalance.objects.update_or_create(
+        contractor_id=contractor_id,
+        material_id=material_id,
+        contract_number=contract_number,
+        contract_subject=contract_subject,
+        defaults={
+            'total_issued': total_issued,
+            'approved_work': approved_work,
+            'allowed_waste': allowed_waste,
+            'balance': balance,
+            'balance_label': balance_label
+        }
+    )
+
+
+def recalculate_all_balances_for_material(material_id):
+    """
+    به‌روزرسانی موازنه تمام کلیدهای مربوط به یک متریال خاص (زمانی که درصد پرتی کالا تغییر کند).
+    """
+    from .models import GlobalMaterialBalance
+    balances = GlobalMaterialBalance.objects.filter(material_id=material_id)
+    for b in balances:
+        update_global_balance_for_key(b.contractor_id, b.material_id, b.contract_number, b.contract_subject)
+
+
+def rebuild_all_global_balances():
+    """
+    پاک کردن و بازسازی کامل جدول پیش‌محاسبه شده موازنه کل از روی داده‌های خام تراکنش‌ها و تاییدیه‌ها.
+    """
+    from .models import WarehouseTransaction, TechnicalOfficeApproval, MaterialItem, GlobalMaterialBalance
+    from django.db import transaction
+    from django.db.models import Sum
+    from decimal import Decimal, ROUND_HALF_UP
+
+    # 1. دریافت تمام داده‌های خام تجمیع شده
     issue_qs = WarehouseTransaction.objects.filter(transaction_type='OUT')
-    issued_aggs = issue_qs.values('contractor_id', 'material_id', 'contract_number', 'contract_subject').annotate(total_qty=Sum('quantity'))
-    issued_map: dict[tuple, Decimal] = {}
-    for agg in issued_aggs:
-        k = (agg['contractor_id'], agg['material_id'], agg['contract_number'] or '', agg['contract_subject'] or '')
-        issued_map[k] = agg['total_qty'] or Decimal('0')
-
     approval_qs = TechnicalOfficeApproval.objects.all()
-    appr_aggs = approval_qs.values('contractor_id', 'material_id', 'contract_number', 'contract_subject').annotate(total_appr=Sum('approved_quantity'))
-    approved_map: dict[tuple, Decimal] = {}
-    for agg in appr_aggs:
-        k = (agg['contractor_id'], agg['material_id'], agg['contract_number'] or '', agg['contract_subject'] or '')
-        approved_map[k] = agg['total_appr'] or Decimal('0')
 
-    # ─── ۳. جمع‌آوری تمام متریال‌های استفاده شده ─────────────────────────────
+    issued_aggs = list(issue_qs.values('contractor_id', 'material_id', 'contract_number', 'contract_subject').annotate(total_qty=Sum('quantity')))
+    appr_aggs = list(approval_qs.values('contractor_id', 'material_id', 'contract_number', 'contract_subject').annotate(total_appr=Sum('approved_quantity')))
+
+    issued_map = {(agg['contractor_id'], agg['material_id'], agg['contract_number'] or '', agg['contract_subject'] or ''): agg['total_qty'] or Decimal('0') for agg in issued_aggs}
+    approved_map = {(agg['contractor_id'], agg['material_id'], agg['contract_number'] or '', agg['contract_subject'] or ''): agg['total_appr'] or Decimal('0') for agg in appr_aggs}
+
     all_keys = set(issued_map.keys()) | set(approved_map.keys())
 
-    if not all_keys:
-        return []
+    material_ids = {k[1] for k in all_keys}
+    materials_waste = {m['id']: m['waste_percentage'] for m in MaterialItem.objects.filter(id__in=material_ids).values('id', 'waste_percentage')}
 
-    contractor_ids = {k[0] for k in all_keys if k[0] is not None}
-    material_ids   = {k[1] for k in all_keys}
-    
-    contractors = {c.id: c for c in Contractor.objects.filter(id__in=contractor_ids)}
-    materials = {m.id: m for m in MaterialItem.objects.select_related('work_category').filter(id__in=material_ids)}
-
-    # ─── ۴. آماده‌سازی ردیف‌های گزارش ─────────────────────────────
-    rows = []
-    
-    # مرتب‌سازی بر اساس نام پیمانکار، سپس نام کالا
-    def get_sort_key(k):
-        c_id, m_id, c_num, c_subj = k
-        contractor = contractors.get(c_id)
-        mat = materials.get(m_id)
-        c_name = contractor.get_full_name() if contractor else ""
-        m_name = mat.name if mat else ""
-        return (c_name, m_name, c_num, c_subj)
-        
-    sorted_keys = sorted(all_keys, key=get_sort_key)
-    
-    for c_id, m_id, contract_num, contract_subj in sorted_keys:
-        material = materials.get(m_id)
-        contractor = contractors.get(c_id)
-        if not material or not contractor:
+    precomputed_instances = []
+    for c_id, m_id, contract_num, contract_subj in all_keys:
+        if not c_id or not m_id:
             continue
 
-        total_issued  = issued_map.get((c_id, m_id, contract_num, contract_subj), Decimal('0'))
-        
-        # بررسی اینکه آیا اصلا تاییدیه‌ای برای این قرارداد و متریال وجود دارد یا خیر
+        total_issued = issued_map.get((c_id, m_id, contract_num, contract_subj), Decimal('0'))
+
         if (c_id, m_id, contract_num, contract_subj) not in approved_map:
             approved_work = Decimal('0')
             allowed_waste = Decimal('0')
-            balance = "در دست بررسی برای تایید دفتر فنی"
+            balance = None
+            balance_label = "در دست بررسی ⏳"
         else:
             approved_work = approved_map[(c_id, m_id, contract_num, contract_subj)]
-            waste_pct     = material.waste_percentage / Decimal('100')
+            waste_pct = materials_waste.get(m_id, Decimal('0')) / Decimal('100')
             allowed_waste = (approved_work * waste_pct).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-            balance       = (total_issued - (approved_work + allowed_waste)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            balance = (total_issued - (approved_work + allowed_waste)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            balance_label = _balance_label(balance)
 
-        row = {
-            'contractor_name': contractor.get_full_name(),
-            'contract_number': contract_num or "—",
-            'contract_subject': contract_subj or "—",
-            'work_category':  material.work_category.name if material.work_category else "—",
-            'material_name':  material.name,
-            'size':           material.size or "—",
-            'mat_type':       material.material_type or "—",
-            'thickness':      material.thickness or "—",
-            'unit':           material.get_unit_display(),
-            'total_issued':   float(total_issued),
-            'approved_work':  float(approved_work),
-            'waste_pct':      float(material.waste_percentage),
-            'allowed_waste':  float(allowed_waste),
-            'balance':        float(balance) if isinstance(balance, Decimal) else balance,
-            'balance_label':  _balance_label(balance),
-        }
-        rows.append(row)
+        precomputed_instances.append(GlobalMaterialBalance(
+            contractor_id=c_id,
+            material_id=m_id,
+            contract_number=contract_num,
+            contract_subject=contract_subj,
+            total_issued=total_issued,
+            approved_work=approved_work,
+            allowed_waste=allowed_waste,
+            balance=balance,
+            balance_label=balance_label
+        ))
 
-    return rows
+    with transaction.atomic():
+        GlobalMaterialBalance.objects.all().delete()
+        GlobalMaterialBalance.objects.bulk_create(precomputed_instances, batch_size=5000)
 
 
-def generate_global_material_balance_excel(is_superuser: bool = False) -> bytes:
+
+def generate_global_material_balance_excel(is_superuser: bool = False, task_id=None, resume_from=None) -> bytes:
     """
     تولید گزارش موازنه متریال کل کارگاه به صورت تجمیعی.
     """
@@ -808,16 +1087,58 @@ def generate_global_material_balance_excel(is_superuser: bool = False) -> bytes:
         return output.getvalue()
 
     # ─── ۵. ساخت فایل اکسل ───────────────────
-    wb = Workbook()
-    _register_named_styles(wb)
-    wb.remove(wb.active)  # حذف شیت پیش‌فرض خالی
+    import os
+    from django.conf import settings
+    from openpyxl import load_workbook
     
-    ws = wb.create_sheet(title="موازنه کل کارگاه")
-    _build_global_sheet(ws, rows)
+    start_row_idx = 0
+    wb = None
+    ws = None
+    
+    if resume_from:
+        temp_dir = os.path.join(settings.MEDIA_ROOT, 'temp_exports')
+        if os.path.exists(temp_dir):
+            temp_file = None
+            for f in os.listdir(temp_dir):
+                if f.startswith(f"temp_{resume_from}_") and f.endswith(".xlsx"):
+                    temp_file = os.path.join(temp_dir, f)
+                    try:
+                        start_row_idx = int(f.split("_")[2].split(".")[0]) + 1
+                    except ValueError:
+                        start_row_idx = 0
+                    break
+            
+            if temp_file and start_row_idx > 0 and start_row_idx < len(rows):
+                try:
+                    wb = load_workbook(temp_file)
+                    ws = wb["موازنه کل کارگاه"]
+                except Exception:
+                    wb = None
+                    ws = None
+                    start_row_idx = 0
+
+    if not wb:
+        wb = Workbook()
+        _register_named_styles(wb)
+        wb.remove(wb.active)  # حذف شیت پیش‌فرض خالی
+        ws = wb.create_sheet(title="موازنه کل کارگاه")
+        start_row_idx = 0
+
+    _build_global_sheet(ws, rows, task_id=task_id, start_row_idx=start_row_idx, wb=wb)
     
     if not is_superuser:
         ws.protection.sheet = True
         ws.protection.password = "jahanpars2026"
+
+    # Clean up temp files for this task and resume_from task on success
+    temp_dir = os.path.join(settings.MEDIA_ROOT, 'temp_exports')
+    if os.path.exists(temp_dir):
+        for f in os.listdir(temp_dir):
+            if f.startswith(f"temp_{task_id}_") or (resume_from and f.startswith(f"temp_{resume_from}_")):
+                try:
+                    os.remove(os.path.join(temp_dir, f))
+                except Exception:
+                    pass
 
     output = io.BytesIO()
     wb.save(output)

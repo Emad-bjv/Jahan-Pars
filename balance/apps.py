@@ -5,3 +5,7 @@ class BalanceConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
     name = 'balance'
     verbose_name = 'سیستم بالانس متریال'
+
+    def ready(self):
+        import balance.signals
+

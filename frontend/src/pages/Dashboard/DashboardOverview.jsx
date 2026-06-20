@@ -97,6 +97,337 @@ const DashboardOverview = () => {
   // Balance Modal States
   const [isBalanceModalOpen, setIsBalanceModalOpen] = useState(false);
 
+  // Background Export Tasks List
+  const [exportTasks, setExportTasks] = useState([]);
+  const exportTasksRef = useRef([]);
+  const pollingIntervalRef = useRef(null);
+
+  // Keep ref updated
+  useEffect(() => {
+    exportTasksRef.current = exportTasks;
+  }, [exportTasks]);
+
+  useEffect(() => {
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
+  }, []);
+
+  // Unified Polling Effect for Multiple Downloads
+  useEffect(() => {
+    const hasActiveTasks = exportTasks.some(t => t.status === 'PENDING' || t.status === 'PROCESSING');
+
+    if (!hasActiveTasks) {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+      return;
+    }
+
+    if (pollingIntervalRef.current) {
+      return; // Already polling
+    }
+
+    pollingIntervalRef.current = setInterval(async () => {
+      const currentTasks = [...exportTasksRef.current];
+
+      const updatedTasksPromises = currentTasks.map(async (task) => {
+        if (task.status !== 'PENDING' && task.status !== 'PROCESSING') {
+          return task; // Don't poll completed tasks
+        }
+
+        try {
+          const res = await api.get(`balance/export-status/${task.id}/`);
+          const latest = res.data;
+
+          let updatedTask = {
+            ...task,
+            status: latest.status,
+            progress: latest.progress,
+            eta: latest.eta,
+            file_url: latest.file_url,
+            error_message: latest.error_message
+          };
+
+          // Check if it just transitioned to SUCCESS
+          if (latest.status === 'SUCCESS' && !task.downloaded) {
+            updatedTask.downloaded = true;
+            playChime();
+            const isPdf = task.type === 'pdf';
+            showSystemNotification(
+              isPdf ? "گزارش PDF آماده شد! 🎉" : "گزارش موازنه آماده شد! 🎉",
+              isPdf ? "فایل گزارش PDF موازنه کل با موفقیت تولید شد." : "فایل گزارش موازنه کل متریال کارگاه با موفقیت تولید شد و دانلود گردید."
+            );
+            showToast(isPdf ? 'تولید گزارش PDF کل با موفقیت پایان یافت.' : 'تولید گزارش موازنه کل با موفقیت پایان یافت.', 'success');
+
+            // Trigger auto-download
+            const origin = api.defaults.baseURL.replace(/\/api\/?$/, '');
+            const downloadUrl = `${origin}${latest.file_url}`;
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.setAttribute('download', isPdf ? 'global_material_balance.pdf' : 'global_material_balance.xlsx');
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+
+            // Set timeout to auto-remove after 8 seconds
+            setTimeout(() => {
+              setExportTasks(prev => prev.filter(t => t.id !== task.id));
+            }, 8000);
+          } else if (latest.status === 'FAILURE') {
+            const isPdf = task.type === 'pdf';
+            showToast(`خطا در تولید گزارش ${isPdf ? 'PDF' : 'اکسل'}: ${latest.error_message || 'خطای سرور'}`, 'error');
+          }
+
+          return updatedTask;
+        } catch (error) {
+          console.error(`Error polling status for task ${task.id}:`, error);
+          return task;
+        }
+      });
+
+      const updatedTasks = await Promise.all(updatedTasksPromises);
+      setExportTasks(updatedTasks);
+    }, 2000);
+
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    };
+  }, [exportTasks.some(t => t.status === 'PENDING' || t.status === 'PROCESSING')]);
+
+  // Load active export tasks on mount (Resume/Recovery)
+  useEffect(() => {
+    const fetchActiveTasks = async () => {
+      try {
+        const res = await api.get('balance/active-tasks/');
+        if (res.data && Array.isArray(res.data)) {
+          const tasks = res.data.map(t => ({
+            id: t.task_id,
+            type: t.type,
+            status: t.status,
+            progress: t.progress,
+            eta: t.eta,
+            file_url: t.file_url,
+            error_message: t.error_message,
+            downloaded: false
+          }));
+          setExportTasks(tasks);
+        }
+      } catch (error) {
+        console.error("Error fetching active export tasks on mount", error);
+      }
+    };
+    fetchActiveTasks();
+  }, []);
+
+  const triggerExport = (type) => {
+    // Check if there is already an active running/pending task
+    const activeExists = exportTasksRef.current.some(t => t.status === 'PENDING' || t.status === 'PROCESSING');
+
+    if (activeExists) {
+      const newTask = {
+        id: `queued_${Date.now()}`,
+        type: type,
+        status: 'QUEUED',
+        progress: 0,
+        eta: 0,
+        downloaded: false
+      };
+      setExportTasks(prev => [...prev, newTask]);
+      showToast(`${type === 'pdf' ? 'گزارش PDF' : 'گزارش اکسل'} به صف دانلود اضافه شد.`, 'info');
+      if (type === 'pdf') {
+        setIsPdfModalOpen(false);
+      }
+    } else {
+      if (type === 'pdf') {
+        startPdfExport();
+      } else {
+        startExcelExport();
+      }
+    }
+  };
+
+  const startExcelExport = async (existingTaskId = null, resumeFrom = null) => {
+    if (existingTaskId) {
+      setExportTasks(prev => prev.map(t => t.id === existingTaskId ? { ...t, status: 'PENDING', progress: 0 } : t));
+    }
+    try {
+      if (Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
+      let endpoint = 'balance/download-global/';
+      if (resumeFrom) {
+        endpoint += `?resume_from=${resumeFrom}`;
+      }
+      const response = await api.get(endpoint);
+      if (response.data && response.data.task_id) {
+        const taskId = response.data.task_id;
+        const newTask = {
+          id: taskId,
+          type: 'excel',
+          status: response.data.status || 'PENDING',
+          progress: response.data.progress || 0,
+          eta: response.data.eta || 0,
+          downloaded: false
+        };
+        if (existingTaskId) {
+          setExportTasks(prev => prev.map(t => (t.id === existingTaskId || t.id === taskId) ? newTask : t));
+        } else {
+          setExportTasks(prev => [...prev, newTask]);
+        }
+        return newTask;
+      } else {
+        showToast('ساختار پاسخ سرور نامعتبر است.', 'error');
+        if (existingTaskId) {
+          setExportTasks(prev => prev.map(t => t.id === existingTaskId ? { ...t, status: 'FAILURE', error_message: 'ساختار پاسخ سرور نامعتبر است.' } : t));
+        }
+      }
+    } catch (error) {
+      console.error("Error starting report export", error);
+      showToast('خطا در شروع فرآیند دانلود گزارش.', 'error');
+      if (existingTaskId) {
+        setExportTasks(prev => prev.map(t => t.id === existingTaskId ? { ...t, status: 'FAILURE', error_message: 'خطا در ارتباط با سرور' } : t));
+      }
+    }
+  };
+
+  const startPdfExport = async (existingTaskId = null, resumeFrom = null) => {
+    if (existingTaskId) {
+      setExportTasks(prev => prev.map(t => t.id === existingTaskId ? { ...t, status: 'PENDING', progress: 0 } : t));
+    }
+    try {
+      if (Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
+      let endpoint = 'balance/download-global-pdf/';
+      if (resumeFrom) {
+        endpoint += `?resume_from=${resumeFrom}`;
+      }
+      const response = await api.get(endpoint);
+      if (response.data && response.data.task_id) {
+        const taskId = response.data.task_id;
+        const newTask = {
+          id: taskId,
+          type: 'pdf',
+          status: response.data.status || 'PENDING',
+          progress: response.data.progress || 0,
+          eta: response.data.eta || 0,
+          downloaded: false
+        };
+        if (existingTaskId) {
+          setExportTasks(prev => prev.map(t => (t.id === existingTaskId || t.id === taskId) ? newTask : t));
+        } else {
+          setExportTasks(prev => [...prev, newTask]);
+        }
+        setIsPdfModalOpen(false);
+        return newTask;
+      } else {
+        showToast('ساختار پاسخ سرور نامعتبر است.', 'error');
+        if (existingTaskId) {
+          setExportTasks(prev => prev.map(t => t.id === existingTaskId ? { ...t, status: 'FAILURE', error_message: 'ساختار پاسخ سرور نامعتبر است.' } : t));
+        }
+      }
+    } catch (error) {
+      console.error("Error starting PDF export", error);
+      showToast('خطا در شروع فرآیند دانلود فایل PDF.', 'error');
+      if (existingTaskId) {
+        setExportTasks(prev => prev.map(t => t.id === existingTaskId ? { ...t, status: 'FAILURE', error_message: 'خطا در ارتباط با سرور' } : t));
+      }
+    }
+  };
+
+  const handleCancelTask = async (taskId) => {
+    try {
+      if (String(taskId).startsWith('queued_')) {
+        setExportTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: 'CANCELLED', progress: 0 } : t));
+        showToast('دانلود از صف حذف گردید.', 'info');
+        return;
+      }
+      setExportTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: 'CANCELLED' } : t));
+      await api.post(`balance/export-status/${taskId}/cancel/`);
+      showToast('دانلود گزارش لغو شد.', 'info');
+    } catch (error) {
+      console.error("Error cancelling task", error);
+      showToast('خطا در لغو دانلود.', 'error');
+    }
+  };
+
+  const handlePauseTask = async (taskId) => {
+    try {
+      if (String(taskId).startsWith('queued_')) {
+        setExportTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: 'PAUSED' } : t));
+        showToast('دانلود متوقف شد.', 'info');
+        return;
+      }
+      setExportTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: 'PAUSED' } : t));
+      await api.post(`balance/export-status/${taskId}/cancel/`);
+      showToast('دانلود متوقف شد.', 'info');
+    } catch (error) {
+      console.error("Error pausing task", error);
+      showToast('خطا در متوقف کردن دانلود.', 'error');
+    }
+  };
+
+  const handleResumeTask = async (task) => {
+    const activeExists = exportTasksRef.current.some(t => t.status === 'PENDING' || t.status === 'PROCESSING');
+    if (activeExists) {
+      setExportTasks(prev => prev.map(t => t.id === task.id ? {
+        ...t,
+        id: `queued_${Date.now()}`,
+        status: 'QUEUED',
+        progress: task.progress,
+        eta: 0,
+        error_message: null,
+        resumeFrom: task.id
+      } : t));
+      showToast('دانلود به انتهای صف اضافه شد.', 'info');
+    } else {
+      setExportTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: 'PENDING', progress: task.progress, error_message: null } : t));
+      if (task.type === 'pdf') {
+        await startPdfExport(task.id, task.id);
+      } else {
+        await startExcelExport(task.id, task.id);
+      }
+      showToast('دانلود مجدداً شروع شد.', 'info');
+    }
+  };
+
+  // Scheduler effect for sequential queueing
+  useEffect(() => {
+    const hasActiveTasks = exportTasks.some(t => t.status === 'PENDING' || t.status === 'PROCESSING');
+    if (hasActiveTasks) return;
+
+    // Find the first queued task
+    const nextQueuedTask = exportTasks.find(t => t.status === 'QUEUED');
+    if (!nextQueuedTask) return;
+
+    // Trigger next queued task
+    if (nextQueuedTask.type === 'pdf') {
+      startPdfExport(nextQueuedTask.id, nextQueuedTask.resumeFrom);
+    } else {
+      startExcelExport(nextQueuedTask.id, nextQueuedTask.resumeFrom);
+    }
+  }, [exportTasks]);
+
+  const handleRetryTask = async (task) => {
+    // Dismiss the failed task from list
+    setExportTasks(prev => prev.filter(t => t.id !== task.id));
+
+    // Trigger task again based on type
+    if (task.type === 'pdf') {
+      handleDownloadPdf();
+    } else {
+      downloadReport('global');
+    }
+  };
+
+
   // Excel Modal State
   const [excelContractorSearch, setExcelContractorSearch] = useState('');
   const [selectedExcelContractor, setSelectedExcelContractor] = useState(null);
@@ -104,11 +435,11 @@ const DashboardOverview = () => {
 
   // PDF Modal State
   const [pdfContractorSearch, setPdfContractorSearch] = useState('');
-  const [selectedPdfContractor, setSelectedPdfContractor] = useState(null);
+  const [selectedPdfContractors, setSelectedPdfContractors] = useState([]);
   const [showPdfContractorDropdown, setShowPdfContractorDropdown] = useState(false);
 
   const [pdfMaterialSearch, setPdfMaterialSearch] = useState('');
-  const [selectedPdfMaterial, setSelectedPdfMaterial] = useState(null);
+  const [selectedPdfMaterials, setSelectedPdfMaterials] = useState([]);
   const [showPdfMaterialDropdown, setShowPdfMaterialDropdown] = useState(false);
   const [pdfReceivedMaterialIds, setPdfReceivedMaterialIds] = useState(null);
 
@@ -119,6 +450,49 @@ const DashboardOverview = () => {
   const excelDropdownRef = useRef(null);
   const pdfContractorDropdownRef = useRef(null);
   const pdfMaterialDropdownRef = useRef(null);
+
+  const updatePdfReceivedMaterials = async (contractorsList) => {
+    if (!contractorsList || contractorsList.length === 0) {
+      setPdfReceivedMaterialIds(null);
+      return;
+    }
+    try {
+      const promises = contractorsList.map(c => api.get(`contractors/${c.id}/received-materials/`));
+      const results = await Promise.all(promises);
+      const unionIds = Array.from(new Set(results.flatMap(res => res.data)));
+      setPdfReceivedMaterialIds(unionIds);
+
+      // Clean up selected materials that are not received by any of the remaining contractors
+      setSelectedPdfMaterials(prev => prev.filter(m => unionIds.includes(m.id)));
+    } catch (err) {
+      console.error('Error fetching received materials', err);
+      setPdfReceivedMaterialIds(null);
+    }
+  };
+
+  const handleAddPdfContractor = async (contractor) => {
+    if (selectedPdfContractors.some(c => c.id === contractor.id)) return;
+    const updated = [...selectedPdfContractors, contractor];
+    setSelectedPdfContractors(updated);
+    setPdfContractorSearch('');
+    await updatePdfReceivedMaterials(updated);
+  };
+
+  const handleRemovePdfContractor = async (contractorId) => {
+    const updated = selectedPdfContractors.filter(c => c.id !== contractorId);
+    setSelectedPdfContractors(updated);
+    await updatePdfReceivedMaterials(updated);
+  };
+
+  const handleAddPdfMaterial = (material) => {
+    if (selectedPdfMaterials.some(m => m.id === material.id)) return;
+    setSelectedPdfMaterials([...selectedPdfMaterials, material]);
+    setPdfMaterialSearch('');
+  };
+
+  const handleRemovePdfMaterial = (materialId) => {
+    setSelectedPdfMaterials(selectedPdfMaterials.filter(m => m.id !== materialId));
+  };
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -163,26 +537,45 @@ const DashboardOverview = () => {
     fetchFilterData();
   }, []);
 
-  const downloadReport = async (type = 'global') => {
+  const playChime = () => {
     try {
-      showToast('در حال آماده سازی گزارش...', 'info');
-      let endpoint = 'balance/download-global/';
-      let filename = 'global_balance';
-
-      const response = await api.get(endpoint, { responseType: 'blob' });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `${filename}.xlsx`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      showToast('گزارش با موفقیت دانلود شد', 'success');
-    } catch (error) {
-      console.error("Error downloading report", error);
-      showToast('خطا در دانلود گزارش.', 'error');
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+      osc.frequency.setValueAtTime(880.00, ctx.currentTime + 0.12); // A5
+      gain.gain.setValueAtTime(0.25, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.6);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.6);
+    } catch (e) {
+      console.warn("Failed to play synthesized notification chime", e);
     }
   };
+
+  const showSystemNotification = (title, body) => {
+    if (Notification.permission === 'granted') {
+      try {
+        new Notification(title, {
+          body: body
+        });
+      } catch (e) {
+        console.warn("System notification could not be spawned", e);
+      }
+    }
+  };
+
+  const downloadReport = async (type = 'global') => {
+    if (type === 'global') {
+      triggerExport('excel');
+    } else {
+      handleDownloadExcel();
+    }
+  };
+
 
   const handleDownloadExcel = async () => {
     if (!selectedExcelContractor) {
@@ -210,11 +603,23 @@ const DashboardOverview = () => {
 
   const handleDownloadPdf = async () => {
     try {
+      const hasFilters = selectedPdfContractors.length > 0 || selectedPdfMaterials.length > 0 || pdfFromDate || pdfToDate || pdfStatus;
+
+      if (!hasFilters) {
+        triggerExport('pdf');
+        return;
+      }
+
+      // Synchronous generation for filtered PDF (normal behaviour)
       showToast('در حال تولید فایل PDF...', 'info');
       let urlStr = 'balance/download-pdf/?';
       const params = new URLSearchParams();
-      if (selectedPdfContractor) params.append('contractor_id', selectedPdfContractor.id);
-      if (selectedPdfMaterial) params.append('material_id', selectedPdfMaterial.id);
+      if (selectedPdfContractors.length > 0) {
+        params.append('contractor_ids', selectedPdfContractors.map(c => c.id).join(','));
+      }
+      if (selectedPdfMaterials.length > 0) {
+        params.append('material_ids', selectedPdfMaterials.map(m => m.id).join(','));
+      }
       if (pdfFromDate) params.append('from_date', pdfFromDate);
       if (pdfToDate) params.append('to_date', pdfToDate);
       if (pdfStatus) params.append('status', pdfStatus);
@@ -414,7 +819,7 @@ const DashboardOverview = () => {
       const totalQty = Number(item.total_qty || 0);
       if (totalQty <= 0) return;
       if (item.material_name !== selectedOutboundMaterial.name || item.unit !== selectedOutboundMaterial.unit) return;
-      
+
       const contractorId = item.contractor_id;
       const contractorName = item.contractor_name || '';
       const key = `${contractorId}`;
@@ -436,9 +841,9 @@ const DashboardOverview = () => {
     if (!outboundData || !selectedOutboundMaterial || !selectedOutboundContractor) return [];
     return outboundData.filter(item => {
       return item.material_name === selectedOutboundMaterial.name &&
-             item.unit === selectedOutboundMaterial.unit &&
-             item.contractor_id === selectedOutboundContractor.contractor_id &&
-             Number(item.total_qty || 0) > 0;
+        item.unit === selectedOutboundMaterial.unit &&
+        item.contractor_id === selectedOutboundContractor.contractor_id &&
+        Number(item.total_qty || 0) > 0;
     });
   };
 
@@ -451,7 +856,7 @@ const DashboardOverview = () => {
       const contractorId = item.contractor_id;
       const contractorName = item.contractor_name || '';
       const unit = item.unit || '';
-      
+
       const key = `${contractorId}`;
       if (!grouped[key]) {
         grouped[key] = {
@@ -475,13 +880,13 @@ const DashboardOverview = () => {
     const grouped = {};
     approvalsData.forEach(item => {
       if (item.contractor_id !== selectedApprovalsContractor.contractor_id) return;
-      
+
       const materialId = item.material_id;
       const materialName = item.material_name || '';
       const unit = item.unit || '';
       const deliveredQty = Number(item.total_delivered || 0);
       const approvedQty = Number(item.total_approved || 0);
-      
+
       const key = `${materialId}__${unit}`;
       if (!grouped[key]) {
         grouped[key] = {
@@ -504,9 +909,9 @@ const DashboardOverview = () => {
     if (!approvalsData || !selectedApprovalsContractor || !selectedApprovalsMaterial) return [];
     return approvalsData.filter(item => {
       return item.contractor_id === selectedApprovalsContractor.contractor_id &&
-             item.material_id === selectedApprovalsMaterial.material_id &&
-             item.unit === selectedApprovalsMaterial.unit &&
-             (Number(item.total_delivered || 0) > 0 || Number(item.total_approved || 0) > 0);
+        item.material_id === selectedApprovalsMaterial.material_id &&
+        item.unit === selectedApprovalsMaterial.unit &&
+        (Number(item.total_delivered || 0) > 0 || Number(item.total_approved || 0) > 0);
     });
   };
 
@@ -580,10 +985,10 @@ const DashboardOverview = () => {
       <GlobalBalanceTable />
 
       {/* Download Excel/PDF Modals */}
-      <BalanceModal 
-        isOpen={isBalanceModalOpen} 
-        onClose={() => setIsBalanceModalOpen(false)} 
-        contractorsSummary={data?.contractors} 
+      <BalanceModal
+        isOpen={isBalanceModalOpen}
+        onClose={() => setIsBalanceModalOpen(false)}
+        contractorsSummary={data?.contractors}
       />
       {/* Excel Modal */}
       {isExcelModalOpen && (
@@ -726,15 +1131,11 @@ const DashboardOverview = () => {
                   <input
                     type="text"
                     className="searchable-dropdown-input"
-                    placeholder="همه پیمانکاران..."
+                    placeholder="جستجو و انتخاب پیمانکاران..."
                     value={pdfContractorSearch}
                     onChange={(e) => {
                       setPdfContractorSearch(e.target.value);
                       setShowPdfContractorDropdown(true);
-                      if (e.target.value === '') {
-                        setSelectedPdfContractor(null);
-                        setPdfReceivedMaterialIds(null);
-                      }
                     }}
                     onFocus={() => setShowPdfContractorDropdown(true)}
                     style={{ paddingLeft: '2.5rem' }}
@@ -743,10 +1144,8 @@ const DashboardOverview = () => {
                     <button
                       type="button"
                       onClick={() => {
-                        setSelectedPdfContractor(null);
                         setPdfContractorSearch('');
                         setShowPdfContractorDropdown(false);
-                        setPdfReceivedMaterialIds(null);
                       }}
                       style={{
                         position: 'absolute',
@@ -770,34 +1169,43 @@ const DashboardOverview = () => {
                   )}
                   {showPdfContractorDropdown && (
                     <div className="searchable-dropdown-list">
-                      <div className="searchable-dropdown-item" onClick={() => { setSelectedPdfContractor(null); setPdfContractorSearch(''); setShowPdfContractorDropdown(false); setPdfReceivedMaterialIds(null); }}>
-                        همه پیمانکاران
-                      </div>
                       {apiContractors
                         .filter(c => `${c.first_name} ${c.last_name}`.includes(pdfContractorSearch))
-                        .map(c => (
-                          <div
-                            key={c.id}
-                            className={`searchable-dropdown-item ${selectedPdfContractor?.id === c.id ? 'selected' : ''}`}
-                            onClick={async () => {
-                              setSelectedPdfContractor(c);
-                              setPdfContractorSearch(`${c.first_name} ${c.last_name}`);
-                              setShowPdfContractorDropdown(false);
-                              try {
-                                const response = await api.get(`contractors/${c.id}/received-materials/`);
-                                setPdfReceivedMaterialIds(response.data);
-                              } catch (err) {
-                                console.error('Error fetching received materials', err);
-                                setPdfReceivedMaterialIds(null);
-                              }
-                            }}
-                          >
-                            {c.first_name} {c.last_name}
-                          </div>
-                        ))}
+                        .map(c => {
+                          const isSelected = selectedPdfContractors.some(selected => selected.id === c.id);
+                          return (
+                            <div
+                              key={c.id}
+                              className={`searchable-dropdown-item ${isSelected ? 'disabled' : ''}`}
+                              onClick={() => {
+                                if (isSelected) return;
+                                handleAddPdfContractor(c);
+                                setShowPdfContractorDropdown(false);
+                              }}
+                            >
+                              {c.first_name} {c.last_name}
+                            </div>
+                          );
+                        })}
                     </div>
                   )}
                 </div>
+                {selectedPdfContractors.length > 0 && (
+                  <div className="selected-chips-container">
+                    {selectedPdfContractors.map(c => (
+                      <div key={c.id} className="selected-chip">
+                        <span>{c.first_name} {c.last_name}</span>
+                        <button
+                          type="button"
+                          className="selected-chip-remove"
+                          onClick={() => handleRemovePdfContractor(c.id)}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="form-group" onClick={e => e.stopPropagation()} style={{ position: 'relative' }}>
@@ -806,12 +1214,11 @@ const DashboardOverview = () => {
                   <input
                     type="text"
                     className="searchable-dropdown-input"
-                    placeholder="همه متریال‌ها..."
+                    placeholder="جستجو و انتخاب متریال‌ها..."
                     value={pdfMaterialSearch}
                     onChange={(e) => {
                       setPdfMaterialSearch(e.target.value);
                       setShowPdfMaterialDropdown(true);
-                      if (e.target.value === '') setSelectedPdfMaterial(null);
                     }}
                     onFocus={() => setShowPdfMaterialDropdown(true)}
                     style={{ paddingLeft: '2.5rem' }}
@@ -820,7 +1227,6 @@ const DashboardOverview = () => {
                     <button
                       type="button"
                       onClick={() => {
-                        setSelectedPdfMaterial(null);
                         setPdfMaterialSearch('');
                         setShowPdfMaterialDropdown(false);
                       }}
@@ -846,9 +1252,6 @@ const DashboardOverview = () => {
                   )}
                   {showPdfMaterialDropdown && (
                     <div className="searchable-dropdown-list">
-                      <div className="searchable-dropdown-item" onClick={() => { setSelectedPdfMaterial(null); setPdfMaterialSearch(''); setShowPdfMaterialDropdown(false); }}>
-                        همه متریال‌ها
-                      </div>
                       {apiMaterials
                         .filter(m => {
                           if (pdfReceivedMaterialIds && !pdfReceivedMaterialIds.includes(m.id)) return false;
@@ -860,14 +1263,14 @@ const DashboardOverview = () => {
                         })
                         .map(m => {
                           const specs = [m.size, m.thickness, m.material_type].filter(Boolean).join(' / ');
-                          const label = specs ? `${m.name} (${specs}) (${m.unit_display || m.unit})` : `${m.name} (${m.unit_display || m.unit})`;
+                          const isSelected = selectedPdfMaterials.some(selected => selected.id === m.id);
                           return (
                             <div
                               key={m.id}
-                              className={`searchable-dropdown-item ${selectedPdfMaterial?.id === m.id ? 'selected' : ''}`}
+                              className={`searchable-dropdown-item ${isSelected ? 'disabled' : ''}`}
                               onClick={() => {
-                                setSelectedPdfMaterial(m);
-                                setPdfMaterialSearch(label);
+                                if (isSelected) return;
+                                handleAddPdfMaterial(m);
                                 setShowPdfMaterialDropdown(false);
                               }}
                             >
@@ -878,6 +1281,26 @@ const DashboardOverview = () => {
                     </div>
                   )}
                 </div>
+                {selectedPdfMaterials.length > 0 && (
+                  <div className="selected-chips-container">
+                    {selectedPdfMaterials.map(m => {
+                      const specs = [m.size, m.thickness, m.material_type].filter(Boolean).join(' / ');
+                      const tagLabel = specs ? `${m.name} (${specs})` : m.name;
+                      return (
+                        <div key={m.id} className="selected-chip">
+                          <span>{tagLabel}</span>
+                          <button
+                            type="button"
+                            className="selected-chip-remove"
+                            onClick={() => handleRemovePdfMaterial(m.id)}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               <div className="form-group">
@@ -986,8 +1409,8 @@ const DashboardOverview = () => {
                 /* View 1: Main List View List */
                 <div className="luxury-view-fade-in">
                   {getGroupedInboundMaterials().map((item, index) => (
-                    <div 
-                      key={index} 
+                    <div
+                      key={index}
                       className="luxury-material-row interactive"
                       onClick={() => setSelectedMaterialGroup(item)}
                     >
@@ -1021,8 +1444,8 @@ const DashboardOverview = () => {
             {/* Breadcrumbs Navigation */}
             {(selectedOutboundMaterial || selectedOutboundContractor) && (
               <div className="luxury-breadcrumb">
-                <span 
-                  className="luxury-breadcrumb-item" 
+                <span
+                  className="luxury-breadcrumb-item"
                   onClick={() => {
                     setSelectedOutboundMaterial(null);
                     setSelectedOutboundContractor(null);
@@ -1034,7 +1457,7 @@ const DashboardOverview = () => {
                 {selectedOutboundMaterial && (
                   <>
                     <span className="luxury-breadcrumb-separator">←</span>
-                    <span 
+                    <span
                       className={`luxury-breadcrumb-item ${!selectedOutboundContractor ? 'active' : ''}`}
                       onClick={() => {
                         if (selectedOutboundContractor) {
@@ -1091,8 +1514,8 @@ const DashboardOverview = () => {
                     </div>
                   ) : (
                     getOutboundMaterialsLevel1().map((item, index) => (
-                      <div 
-                        key={index} 
+                      <div
+                        key={index}
                         className="luxury-material-row interactive"
                         onClick={() => {
                           setSelectedOutboundMaterial(item);
@@ -1113,8 +1536,8 @@ const DashboardOverview = () => {
               ) : !selectedOutboundContractor ? (
                 /* Level 2: List of Contractors who received the selected Material */
                 <div className="luxury-view-slide-in">
-                  <button 
-                    className="luxury-back-btn" 
+                  <button
+                    className="luxury-back-btn"
                     onClick={() => {
                       setSelectedOutboundMaterial(null);
                       setOutboundSearchQuery('');
@@ -1143,8 +1566,8 @@ const DashboardOverview = () => {
                     </div>
                   ) : (
                     getOutboundContractorsLevel2().map((item, index) => (
-                      <div 
-                        key={index} 
+                      <div
+                        key={index}
                         className="luxury-material-row interactive"
                         onClick={() => {
                           setSelectedOutboundContractor(item);
@@ -1165,8 +1588,8 @@ const DashboardOverview = () => {
               ) : (
                 /* Level 3: Detailed Tech Specs variation for selected Contractor & Material */
                 <div className="luxury-view-slide-in">
-                  <button 
-                    className="luxury-back-btn" 
+                  <button
+                    className="luxury-back-btn"
                     onClick={() => {
                       setSelectedOutboundContractor(null);
                       setOutboundSearchQuery('');
@@ -1234,8 +1657,8 @@ const DashboardOverview = () => {
             {/* Breadcrumbs Navigation */}
             {(selectedApprovalsContractor || selectedApprovalsMaterial) && (
               <div className="luxury-breadcrumb">
-                <span 
-                  className="luxury-breadcrumb-item" 
+                <span
+                  className="luxury-breadcrumb-item"
                   onClick={() => {
                     setSelectedApprovalsContractor(null);
                     setSelectedApprovalsMaterial(null);
@@ -1247,7 +1670,7 @@ const DashboardOverview = () => {
                 {selectedApprovalsContractor && (
                   <>
                     <span className="luxury-breadcrumb-separator">←</span>
-                    <span 
+                    <span
                       className={`luxury-breadcrumb-item ${!selectedApprovalsMaterial ? 'active' : ''}`}
                       onClick={() => {
                         if (selectedApprovalsMaterial) {
@@ -1304,8 +1727,8 @@ const DashboardOverview = () => {
                     </div>
                   ) : (
                     getApprovalsContractorsLevel1().map((item, index) => (
-                      <div 
-                        key={index} 
+                      <div
+                        key={index}
                         className="luxury-material-row interactive"
                         onClick={() => {
                           setSelectedApprovalsContractor(item);
@@ -1330,8 +1753,8 @@ const DashboardOverview = () => {
               ) : !selectedApprovalsMaterial ? (
                 /* Level 2: List of Materials for Selected Contractor */
                 <div className="luxury-view-slide-in">
-                  <button 
-                    className="luxury-back-btn" 
+                  <button
+                    className="luxury-back-btn"
                     onClick={() => {
                       setSelectedApprovalsContractor(null);
                       setApprovalsSearchQuery('');
@@ -1360,8 +1783,8 @@ const DashboardOverview = () => {
                     </div>
                   ) : (
                     getApprovalsMaterialsLevel2().map((item, index) => (
-                      <div 
-                        key={index} 
+                      <div
+                        key={index}
                         className="luxury-material-row interactive"
                         onClick={() => {
                           setSelectedApprovalsMaterial(item);
@@ -1395,8 +1818,8 @@ const DashboardOverview = () => {
               ) : (
                 /* Level 3: Tech Specs Variations */
                 <div className="luxury-view-slide-in">
-                  <button 
-                    className="luxury-back-btn" 
+                  <button
+                    className="luxury-back-btn"
                     onClick={() => {
                       setSelectedApprovalsMaterial(null);
                       setApprovalsSearchQuery('');
@@ -1455,6 +1878,120 @@ const DashboardOverview = () => {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+      {/* Floating Export Progress Card (Chrome-style Download Manager) */}
+      {exportTasks.length > 0 && (
+        <div className="download-progress-card multiple">
+          <div className="progress-card-header">
+            <span className="progress-card-title">لیست دانلودهای گزارش</span>
+            <button className="progress-card-close" onClick={() => setExportTasks([])}>× بستن همه</button>
+          </div>
+
+          <div className="progress-card-list">
+            {exportTasks.map((task) => (
+              <div key={task.id} className={`progress-card-item ${task.status === 'PAUSED' ? 'paused' :
+                  task.status === 'CANCELLED' ? 'cancelled' : ''
+                }`}>
+                <div className="progress-item-header">
+                  <span className="progress-item-title">
+                    {task.type === 'pdf' ? 'گزارش PDF موازنه کل' : 'گزارش اکسل موازنه کل'}
+                  </span>
+                  <button
+                    className="progress-item-close"
+                    onClick={() => {
+                      if (task.status === 'PENDING' || task.status === 'PROCESSING' || task.status === 'QUEUED') {
+                        handleCancelTask(task.id);
+                      } else {
+                        setExportTasks(prev => prev.filter(t => t.id !== task.id));
+                      }
+                    }}
+                    title={task.status === 'PENDING' || task.status === 'PROCESSING' || task.status === 'QUEUED' ? "لغو دانلود" : "حذف از لیست"}
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <div className="progress-bar-container">
+                  <div
+                    className={`progress-bar-fill ${task.status === 'SUCCESS' ? 'success' :
+                        task.status === 'FAILURE' || task.status === 'CANCELLED' ? 'danger' :
+                          task.status === 'PAUSED' ? 'warning' : ''
+                      }`}
+                    style={{ width: `${task.progress}%` }}
+                  ></div>
+                </div>
+
+                <div className="progress-card-meta">
+                  <span className="progress-percentage">
+                    {task.status === 'PENDING' && 'در صف...'}
+                    {task.status === 'QUEUED' && 'در صف انتظار...'}
+                    {task.status === 'PROCESSING' && `${task.progress}%`}
+                    {task.status === 'SUCCESS' && 'تکمیل شد'}
+                    {task.status === 'PAUSED' && 'متوقف شده'}
+                    {task.status === 'CANCELLED' && 'لغو شده'}
+                    {task.status === 'FAILURE' && (task.error_message === 'توسط کاربر لغو شد.' || task.error_message === 'لغو شده توسط کاربر' ? 'لغو شد' : 'خطا')}
+                  </span>
+
+                  {task.status === 'PROCESSING' && task.eta > 0 && (
+                    <span className="progress-eta">
+                      باقی‌مانده: {task.eta} ثانیه
+                    </span>
+                  )}
+                  {task.status === 'SUCCESS' && (
+                    <span className="progress-eta success-text">
+                      فایل دانلود شد
+                    </span>
+                  )}
+                  {task.status === 'FAILURE' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span className="progress-eta error-text" title={task.error_message}>
+                        {task.error_message === 'توسط کاربر لغو شد.' || task.error_message === 'لغو شده توسط کاربر' ? 'لغو شده' : 'خطا در تولید'}
+                      </span>
+                      <button
+                        className="progress-retry-btn"
+                        onClick={() => handleRetryTask(task)}
+                        style={{
+                          background: 'rgba(99, 102, 241, 0.08)',
+                          border: 'none',
+                          borderRadius: '4px',
+                          padding: '2px 6px',
+                          fontSize: '10px',
+                          cursor: 'pointer',
+                          color: 'var(--primary-600)',
+                          fontFamily: 'inherit',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '3px'
+                        }}
+                      >
+                        🔄 تلاش مجدد
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Buttons next to each other as requested */}
+                  {(task.status === 'PENDING' || task.status === 'PROCESSING') && (
+                    <div className="progress-actions">
+                      <button className="btn-action pause" onClick={() => handlePauseTask(task.id)}>توقف</button>
+                      <button className="btn-action cancel" onClick={() => handleCancelTask(task.id)}>لغو</button>
+                    </div>
+                  )}
+                  {task.status === 'PAUSED' && (
+                    <div className="progress-actions">
+                      <button className="btn-action resume" onClick={() => handleResumeTask(task)}>ادامه</button>
+                      <button className="btn-action cancel" onClick={() => handleCancelTask(task.id)}>لغو</button>
+                    </div>
+                  )}
+                  {task.status === 'QUEUED' && (
+                    <div className="progress-actions">
+                      <button className="btn-action cancel" onClick={() => handleCancelTask(task.id)}>لغو</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}

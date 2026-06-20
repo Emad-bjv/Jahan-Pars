@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import api from '../../services/api';
 import { useToast } from '../../contexts/ToastContext';
+import { useDownloadManager } from '../../contexts/DownloadContext';
 import { SkeletonTable } from '../../components/Skeleton';
 import { AuthContext } from '../../contexts/AuthContext';
 import { toPersianDigits, formatPersianNumber, toPersianDate } from '../../utils/persianNumbers';
@@ -33,6 +34,7 @@ const ContractorsManager = () => {
   const [formData, setFormData] = useState({ first_name: '', last_name: '' });
   const [submitLoading, setSubmitLoading] = useState(false);
   const { showToast } = useToast();
+  const { triggerExport } = useDownloadManager();
   
   // Modal states
   const [selectedContractor, setSelectedContractor] = useState(null);
@@ -102,20 +104,8 @@ const ContractorsManager = () => {
     }
   };
 
-  const downloadReport = async () => {
-    try {
-      const response = await api.get('balance/download-contractors/', { responseType: 'blob' });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', 'contractors_list.xlsx');
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    } catch (error) {
-      console.error("Error downloading report", error);
-      showToast('خطا در دانلود گزارش پیمانکاران.', 'error');
-    }
+  const downloadReport = () => {
+    triggerExport('contractors_excel', {}, 'خروجی اکسل لیست پیمانکاران');
   };
 
   return (

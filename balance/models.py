@@ -279,3 +279,71 @@ class AuditLog(models.Model):
     def __str__(self):
         user_str = self.user.username if self.user else "سیستم"
         return f"{user_str} → {self.get_action_display()} {self.model_name} ({self.object_repr})"
+
+
+class GlobalMaterialBalance(models.Model):
+    """
+    جدول پیش‌محاسبه شده موازنه متریال کل کارگاه برای افزایش سرعت تا سطح میلی‌ثانیه.
+    داده‌های این جدول توسط سیگنال‌های جنگو در هنگام ذخیره یا حذف تراکنش‌ها/تاییدیه عملکرد به‌روز می‌شود.
+    """
+    contractor = models.ForeignKey(Contractor, on_delete=models.CASCADE, related_name='global_balances', verbose_name="پیمانکار")
+    material = models.ForeignKey(MaterialItem, on_delete=models.CASCADE, related_name='global_balances', verbose_name="نوع متریال")
+    contract_number = models.CharField(max_length=100, blank=True, null=True, verbose_name="شماره قرارداد")
+    contract_subject = models.CharField(max_length=255, blank=True, null=True, verbose_name="موضوع قرارداد")
+
+    total_issued = models.DecimalField(max_digits=12, decimal_places=2, default=0.00, verbose_name="کل صادر شده")
+    approved_work = models.DecimalField(max_digits=12, decimal_places=2, default=0.00, verbose_name="کار تایید شده")
+    allowed_waste = models.DecimalField(max_digits=12, decimal_places=2, default=0.00, verbose_name="پرت مجاز")
+    balance = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True, verbose_name="موازنه انحراف")
+    balance_label = models.CharField(max_length=100, db_index=True, verbose_name="وضعیت موازنه")
+
+    class Meta:
+        verbose_name = "موازنه متریال کل کارگاه"
+        verbose_name_plural = "موازنه متریال کل کارگاه"
+        unique_together = ('contractor', 'material', 'contract_number', 'contract_subject')
+        indexes = [
+            models.Index(fields=['contractor', 'material']),
+            models.Index(fields=['contract_number']),
+            models.Index(fields=['balance_label']),
+        ]
+
+    def __str__(self):
+        return f"{self.contractor} - {self.material} - {self.balance_label}"
+
+
+import uuid
+
+class ExportTask(models.Model):
+    """
+    جدول رهگیری وضعیت تولید فایل‌های اکسل در پس‌زمینه.
+    """
+    STATUS_CHOICES = (
+        ('PENDING', 'در انتظار'),
+        ('PROCESSING', 'در حال پردازش'),
+        ('SUCCESS', 'موفق'),
+        ('FAILURE', 'خطا'),
+    )
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING', verbose_name="وضعیت")
+    task_type = models.CharField(
+        max_length=10, 
+        choices=(('excel', 'Excel'), ('pdf', 'PDF')), 
+        default='excel', 
+        verbose_name="نوع فایل"
+    )
+    progress = models.IntegerField(default=0, verbose_name="درصد پیشرفت")
+    eta = models.IntegerField(default=0, verbose_name="زمان باقی‌مانده (ثانیه)")
+    file_url = models.CharField(max_length=255, blank=True, null=True, verbose_name="آدرس دانلود فایل")
+    error_message = models.TextField(blank=True, null=True, verbose_name="پیام خطا")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="تاریخ ایجاد")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="تاریخ بروزرسانی")
+
+    class Meta:
+        verbose_name = "تسک خروجی فایل"
+        verbose_name_plural = "تسک‌های خروجی فایل"
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Task {self.id} - {self.status} ({self.progress}%)"
+
+

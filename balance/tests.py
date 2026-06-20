@@ -197,6 +197,41 @@ class BalanceMathTests(TestCase):
         # طول PDF باید بیشتر از صفر باشد
         self.assertGreater(len(response.content), 0)
 
+    def test_pdf_generation_multiple_filters(self):
+        from .pdf_service import get_balance_pdf_response
+        
+        contractor1 = Contractor.objects.create(first_name="پیمانکار", last_name="اول")
+        contractor2 = Contractor.objects.create(first_name="پیمانکار", last_name="دوم")
+        
+        # موجودی انبار برای متریال
+        WarehouseTransaction.objects.create(
+            transaction_type='IN',
+            material=self.material,
+            quantity=Decimal('500'),
+            date=date.today()
+        )
+        
+        WarehouseTransaction.objects.create(
+            transaction_type='OUT',
+            material=self.material,
+            quantity=Decimal('100'),
+            contractor=contractor1,
+            date=date.today()
+        )
+        WarehouseTransaction.objects.create(
+            transaction_type='OUT',
+            material=self.material,
+            quantity=Decimal('150'),
+            contractor=contractor2,
+            date=date.today()
+        )
+        
+        # تولید PDF با فیلتر چندتایی
+        response = get_balance_pdf_response(contractor_ids=[contractor1.id, contractor2.id], material_ids=[self.material.id])
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+        self.assertGreater(len(response.content), 0)
+
 
 from rest_framework.test import APITestCase
 from django.contrib.auth import get_user_model

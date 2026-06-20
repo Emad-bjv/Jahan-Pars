@@ -3,6 +3,7 @@ import api from '../services/api';
 import { SkeletonTable } from './Skeleton';
 import { formatPersianNumber } from '../utils/persianNumbers';
 import { useToast } from '../contexts/ToastContext';
+import { useDownloadManager } from '../contexts/DownloadContext';
 
 const Icons = {
   download: <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>,
@@ -16,6 +17,7 @@ const WarehouseInventory = ({ isModal = false, onClose }) => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const { showToast } = useToast();
+  const { triggerExport } = useDownloadManager();
 
   useEffect(() => {
     fetchInventory();
@@ -36,20 +38,8 @@ const WarehouseInventory = ({ isModal = false, onClose }) => {
     }
   };
 
-  const downloadReport = async () => {
-    try {
-      const response = await api.get('balance/download-warehouse/', { responseType: 'blob' });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', 'warehouse_inventory.xlsx');
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    } catch (error) {
-      console.error("Error downloading report", error);
-      showToast('خطا در دانلود گزارش انبار.', 'error');
-    }
+  const downloadReport = () => {
+    triggerExport('warehouse_excel', {}, 'خروجی اکسل موجودی انبار');
   };
 
   const filteredInventory = inventory.filter(item => 

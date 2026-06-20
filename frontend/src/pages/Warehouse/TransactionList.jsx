@@ -10,16 +10,41 @@ const TransactionList = ({ refreshTrigger }) => {
   const [selectedTx, setSelectedTx] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('ALL');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+      setCurrentPage(1);
+    }, 400);
+    return () => clearTimeout(handler);
+  }, [searchTerm]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterType]);
 
   useEffect(() => {
     const fetchTransactions = async () => {
       setLoading(true);
       try {
-        const response = await api.get('transactions/');
-        // Handle DRF paginated response
-        let data = response.data.results || response.data;
-        data = [...data].sort((a, b) => b.id - a.id);
-        setTransactions(data);
+        const params = { page: currentPage };
+        if (filterType !== 'ALL') params.type = filterType;
+        if (debouncedSearchTerm) params.search = debouncedSearchTerm;
+
+        const response = await api.get('transactions/', { params });
+        if (response.data.results) {
+          setTransactions(response.data.results);
+          setTotalCount(response.data.count);
+          setTotalPages(Math.ceil(response.data.count / 50));
+        } else {
+          setTransactions(response.data);
+          setTotalCount(response.data.length);
+          setTotalPages(1);
+        }
       } catch (error) {
         console.error('Error fetching transactions:', error);
       } finally {
@@ -28,7 +53,20 @@ const TransactionList = ({ refreshTrigger }) => {
     };
 
     fetchTransactions();
-  }, [refreshTrigger]);
+  }, [refreshTrigger, currentPage, filterType, debouncedSearchTerm]);
+
+  const getPageNumbers = () => {
+    const pages = [];
+    const delta = 2;
+    for (let i = 1; i <= totalPages; i++) {
+      if (i === 1 || i === totalPages || (i >= currentPage - delta && i <= currentPage + delta)) {
+        pages.push(i);
+      } else if (pages[pages.length - 1] !== '...') {
+        pages.push('...');
+      }
+    }
+    return pages;
+  };
 
   if (loading) {
     return (
@@ -38,25 +76,7 @@ const TransactionList = ({ refreshTrigger }) => {
     );
   }
 
-  const filteredTransactions = transactions.filter(tx => {
-    if (filterType !== 'ALL' && tx.transaction_type !== filterType) return false;
-    
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      const materialName = (tx.material_detail?.name || '').toLowerCase();
-      const contractorName = (tx.contractor_detail?.full_name || '').toLowerCase();
-      const bill = (tx.bill_of_lading || '').toLowerCase();
-      const contract = (tx.contract_number || '').toLowerCase();
-      
-      if (!materialName.includes(term) && 
-          !contractorName.includes(term) && 
-          !bill.includes(term) && 
-          !contract.includes(term)) {
-        return false;
-      }
-    }
-    return true;
-  });
+  const filteredTransactions = transactions;
 
   return (
     <div className="section-panel" style={{ padding: 0, overflow: 'hidden', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
@@ -151,6 +171,59 @@ const TransactionList = ({ refreshTrigger }) => {
           </tbody>
         </table>
       </div>
+
+      {/* Pagination Bar */}
+      {totalPages > 1 && (
+        <div className="balance-pagination-container" style={{ padding: '1rem', borderTop: '1px solid var(--border-color)', backgroundColor: 'var(--bg-surface-solid)', borderRadius: '0 0 var(--radius-lg) var(--radius-lg)', marginTop: 'auto' }}>
+          <div className="pagination-info">
+            نمایش ردیف‌های {formatPersianNumber((currentPage - 1) * 50 + 1)} تا {formatPersianNumber(Math.min(currentPage * 50, totalCount))} از {formatPersianNumber(totalCount)} تراکنش
+          </div>
+          <div className="pagination-buttons">
+            <button 
+              className="pagination-btn" 
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+              disabled={currentPage === 1}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
+            >
+              <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+              </svg>
+              <span>قبلی</span>
+            </button>
+            
+            {getPageNumbers().map((pageNum, idx) => {
+              if (pageNum === '...') {
+                return (
+                  <span key={`ellipsis-${idx}`} style={{ color: 'var(--text-dim)', padding: '0 0.5rem', alignSelf: 'center', userSelect: 'none' }}>
+                    ...
+                  </span>
+                );
+              }
+              return (
+                <button
+                  key={pageNum}
+                  className={`pagination-btn-number ${currentPage === pageNum ? 'active' : ''}`}
+                  onClick={() => setCurrentPage(pageNum)}
+                >
+                  {formatPersianNumber(pageNum)}
+                </button>
+              );
+            })}
+
+            <button 
+              className="pagination-btn" 
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              disabled={currentPage === totalPages}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
+            >
+              <span>بعدی</span>
+              <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Transaction Details Modal */}
       {selectedTx && createPortal(

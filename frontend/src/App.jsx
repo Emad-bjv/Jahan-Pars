@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { ToastProvider } from './contexts/ToastContext';
+import { DownloadProvider } from './contexts/DownloadContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import Login from './pages/Login/Login';
 import DashboardLayout from './pages/Dashboard/DashboardLayout';
@@ -61,33 +62,35 @@ function App() {
   return (
     <AuthProvider>
       <ToastProvider>
-        <ThemeController>
-          <BrowserRouter>
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            
-            {/* روت‌های دفتر فنی (مدیریتی) */}
-            <Route element={<ProtectedRoute allowedRoles={['TECHNICAL', 'ADMIN']} />}>
-              <Route path="/dashboard" element={<DashboardLayout />}>
-                <Route index element={<DashboardOverview />} />
-                <Route path="contractors" element={<ContractorsManager />} />
-                <Route path="materials" element={<MaterialsManager />} />
-                <Route path="inventory" element={<WarehouseInventory />} />
-                <Route path="approvals" element={<ApprovalsManager />} />
-                <Route path="audit-log" element={<AuditLog />} />
-              </Route>
-            </Route>
-            
-            {/* روت‌های انباردار */}
-            <Route element={<ProtectedRoute allowedRoles={['WAREHOUSE']} />}>
-              <Route path="/warehouse" element={<Warehouse />} />
-            </Route>
+        <DownloadProvider>
+          <ThemeController>
+            <BrowserRouter>
+              <Routes>
+                <Route path="/login" element={<Login />} />
+                
+                {/* روت‌های دفتر فنی (مدیریتی) */}
+                <Route element={<ProtectedRoute allowedRoles={['TECHNICAL', 'ADMIN']} />}>
+                  <Route path="/dashboard" element={<DashboardLayout />}>
+                    <Route index element={<DashboardOverview />} />
+                    <Route path="contractors" element={<ContractorsManager />} />
+                    <Route path="materials" element={<MaterialsManager />} />
+                    <Route path="inventory" element={<WarehouseInventory />} />
+                    <Route path="approvals" element={<ApprovalsManager />} />
+                    <Route path="audit-log" element={<AuditLog />} />
+                  </Route>
+                </Route>
+                
+                {/* روت‌های انباردار */}
+                <Route element={<ProtectedRoute allowedRoles={['WAREHOUSE']} />}>
+                  <Route path="/warehouse" element={<Warehouse />} />
+                </Route>
 
-            {/* در صورت مسیر اشتباه، اگر لاگین نبود برود به لاگین */}
-            <Route path="*" element={<Navigate to="/login" replace />} />
-          </Routes>
-        </BrowserRouter>
-      </ThemeController>
+                {/* در صورت مسیر اشتباه، اگر لاگین نبود برود به لاگین */}
+                <Route path="*" element={<Navigate to="/login" replace />} />
+              </Routes>
+            </BrowserRouter>
+          </ThemeController>
+        </DownloadProvider>
       </ToastProvider>
     </AuthProvider>
   );
