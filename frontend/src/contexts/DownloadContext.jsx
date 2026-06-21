@@ -211,16 +211,50 @@ export const DownloadProvider = ({ children }) => {
         endpoint = 'balance/download-approvals/';
       }
 
-      const response = await api.get(`${endpoint}?${params.toString()}`);
-      const data = response.data;
-      
-      setExportTasks(prev => prev.map(t => t.id === task.id ? {
-        ...t,
-        id: data.task_id,
-        status: data.status,
-        progress: data.progress || 0,
-        eta: data.eta || 0
-      } : t));
+      const isAsync = task.type === 'global_excel' || task.type === 'global_pdf';
+
+      if (isAsync) {
+        const response = await api.get(`${endpoint}?${params.toString()}`);
+        const data = response.data;
+        
+        setExportTasks(prev => prev.map(t => t.id === task.id ? {
+          ...t,
+          id: data.task_id,
+          status: data.status,
+          progress: data.progress || 0,
+          eta: data.eta || 0
+        } : t));
+      } else {
+        // For synchronous tasks, download as blob
+        const response = await api.get(`${endpoint}?${params.toString()}`, { responseType: 'blob' });
+        
+        // Trigger browser download
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const link = document.createElement('a');
+        link.href = url;
+        
+        let filename = 'report';
+        if (task.type === 'balance_excel') filename = 'balance_report.xlsx';
+        else if (task.type === 'balance_pdf') filename = 'balance_report.pdf';
+        else if (task.type === 'warehouse_excel') filename = 'warehouse_inventory.xlsx';
+        else if (task.type === 'contractors_excel') filename = 'contractors_list.xlsx';
+        else if (task.type === 'approvals_excel') filename = 'approvals_list.xlsx';
+        
+        link.setAttribute('download', filename);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+
+        showToast(`${task.name} با موفقیت دانلود شد.`, 'success');
+
+        setExportTasks(prev => prev.map(t => t.id === task.id ? {
+          ...t,
+          status: 'SUCCESS',
+          progress: 100,
+          downloaded: true
+        } : t));
+      }
     } catch (err) {
       console.error('Error starting queued task', err);
       setExportTasks(prev => prev.map(t => t.id === task.id ? {

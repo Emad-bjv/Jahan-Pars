@@ -1,0 +1,698 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   DashboardCharts.css — استایل‌های بخش نمودارهای تحلیلی داشبورد
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── Container ────────────────────────────────────────────────── */
+.dashboard-charts-section {
+  margin-top: 1.5rem;
+  margin-bottom: 1.5rem;
+  background: var(--bg-surface);
+  border-radius: var(--radius-lg, 16px);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.06));
+  overflow: hidden;
+  animation: chartsFadeIn 0.5s ease-out;
+}
+
+@keyframes chartsFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ─── Header ───────────────────────────────────────────────────── */
+.charts-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 1.5rem 0;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.charts-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.charts-header-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-main);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.charts-header-title svg {
+  color: var(--primary-400, #60a5fa);
+}
+
+.charts-refresh-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  opacity: 0.7;
+}
+
+.charts-refresh-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success, #34d399);
+  animation: chartsPulse 2s ease-in-out infinite;
+}
+
+@keyframes chartsPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+/* ─── Tabs ─────────────────────────────────────────────────────── */
+.charts-tabs {
+  display: flex;
+  gap: 0.25rem;
+  padding: 1rem 1.5rem 0;
+  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.06));
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.charts-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.charts-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 1.2rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.25s ease;
+  border-radius: 8px 8px 0 0;
+}
+
+.charts-tab:hover {
+  color: var(--text-main);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.charts-tab.active {
+  color: var(--primary-400, #60a5fa);
+  border-bottom-color: var(--primary-400, #60a5fa);
+  background: rgba(96, 165, 250, 0.06);
+  font-weight: 600;
+}
+
+.charts-tab-icon {
+  display: flex;
+  align-items: center;
+  font-size: 1.1rem;
+}
+
+/* ─── Filter Bar ───────────────────────────────────────────────── */
+.charts-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.04));
+}
+
+.charts-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.charts-filter-label {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+/* Period quick buttons */
+.charts-period-buttons {
+  display: flex;
+  gap: 0.25rem;
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.charts-period-btn {
+  padding: 0.35rem 0.65rem;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.charts-period-btn:hover {
+  color: var(--text-main);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.charts-period-btn.active {
+  color: var(--primary-400, #60a5fa);
+  background: rgba(96, 165, 250, 0.15);
+  font-weight: 600;
+}
+
+/* Filter dropdowns */
+.charts-filter-select {
+  padding: 0.4rem 0.7rem;
+  font-size: 0.75rem;
+  color: var(--text-main);
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+  cursor: pointer;
+  max-width: 180px;
+  font-family: inherit;
+  direction: rtl;
+  transition: border-color 0.2s ease;
+}
+
+.charts-filter-select:focus {
+  outline: none;
+  border-color: var(--primary-400, #60a5fa);
+}
+
+.charts-filter-select option {
+  background: var(--bg-surface);
+  color: var(--text-main);
+}
+
+.charts-filter-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--border-subtle, rgba(255, 255, 255, 0.08));
+  margin: 0 0.25rem;
+}
+
+/* ─── Chart Body ───────────────────────────────────────────────── */
+.charts-body {
+  padding: 1.5rem;
+  min-height: 360px;
+  animation: chartBodyFadeIn 0.35s ease-out;
+}
+
+@keyframes chartBodyFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ─── Chart Containers ─────────────────────────────────────────── */
+.charts-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2.25rem;
+}
+
+.chart-card {
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.02));
+  border-radius: 12px;
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.04));
+  padding: 1.25rem;
+  transition: border-color 0.2s ease;
+}
+
+.chart-card:hover {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.chart-card-full {
+  grid-column: 1 / -1;
+}
+
+.chart-card-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.chart-card-title .chart-badge {
+  font-size: 0.65rem;
+  font-weight: 500;
+  color: var(--primary-400, #60a5fa);
+  background: rgba(96, 165, 250, 0.1);
+  padding: 2px 8px;
+  border-radius: 20px;
+}
+
+/* ─── Chart Tooltips (Recharts Custom) ─────────────────────────── */
+.charts-custom-tooltip {
+  background: var(--bg-surface, #1a1d23);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+  direction: rtl;
+  min-width: 140px;
+}
+
+.charts-tooltip-title {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  margin-bottom: 0.4rem;
+  font-weight: 500;
+}
+
+.charts-tooltip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.15rem 0;
+}
+
+.charts-tooltip-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.charts-tooltip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.charts-tooltip-value {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Legend ────────────────────────────────────────────────────── */
+.charts-legend {
+  display: flex;
+  justify-content: center;
+  gap: 1.25rem;
+  margin-top: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.charts-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.charts-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ─── Balance Status Cards ─────────────────────────────────────── */
+.balance-status-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.balance-status-card {
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.02));
+  border-radius: 10px;
+  padding: 0.85rem;
+  text-align: center;
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.04));
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.balance-status-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.balance-status-count {
+  font-size: 1.6rem;
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.balance-status-label {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.balance-status-card.debtor .balance-status-count { color: var(--danger, #ef4444); }
+.balance-status-card.creditor .balance-status-count { color: var(--warning, #f59e0b); }
+.balance-status-card.cleared .balance-status-count { color: var(--success, #34d399); }
+.balance-status-card.review .balance-status-count { color: var(--primary-400, #60a5fa); }
+
+/* ─── Loading / Empty ──────────────────────────────────────────── */
+.charts-loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  min-height: 320px;
+  color: var(--text-dim);
+}
+
+.charts-loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+  border-top-color: var(--primary-400, #60a5fa);
+  border-radius: 50%;
+  animation: chartsSpin 0.8s linear infinite;
+}
+
+@keyframes chartsSpin {
+  to { transform: rotate(360deg); }
+}
+
+.charts-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  min-height: 280px;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+.charts-empty-state svg {
+  opacity: 0.3;
+}
+
+/* ─── Inventory Bar Special ────────────────────────────────────── */
+.inventory-bar-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.inventory-bar-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: 8px;
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.02));
+  transition: background 0.2s ease;
+}
+
+.inventory-bar-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.inventory-bar-item.critical {
+  border-right: 3px solid var(--danger, #ef4444);
+}
+
+.inventory-bar-name {
+  font-size: 0.75rem;
+  color: var(--text-main);
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inventory-bar-track {
+  flex: 2;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.inventory-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.6s ease-out;
+  min-width: 2px;
+}
+
+.inventory-bar-fill.safe {
+  background: linear-gradient(90deg, var(--success, #34d399), #6ee7b7);
+}
+
+.inventory-bar-fill.warning {
+  background: linear-gradient(90deg, var(--warning, #f59e0b), #fbbf24);
+}
+
+.inventory-bar-fill.critical {
+  background: linear-gradient(90deg, var(--danger, #ef4444), #f87171);
+}
+
+.inventory-bar-threshold {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  background: var(--danger, #ef4444);
+  border-radius: 1px;
+}
+
+.inventory-bar-values {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.7rem;
+  min-width: 80px;
+  justify-content: flex-end;
+}
+
+.inventory-bar-stock {
+  font-weight: 600;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+
+.inventory-bar-unit {
+  color: var(--text-dim);
+}
+
+/* ─── Interactive Legends ────────────────────────────────────────── */
+.interactive-legend {
+  cursor: pointer;
+  user-select: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.interactive-legend:hover {
+  opacity: 0.9;
+  transform: scale(1.03);
+}
+
+.interactive-legend.inactive {
+  opacity: 0.35;
+  text-decoration: line-through;
+}
+
+/* ─── Show More Button ───────────────────────────────────────────── */
+.chart-card-title-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.chart-card-title-container .chart-card-title {
+  margin-bottom: 0;
+}
+
+.charts-show-more-btn {
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  color: var(--primary-400, #38BDF8);
+  font-size: 0.72rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+
+.charts-show-more-btn:hover {
+  background: rgba(56, 189, 248, 0.1);
+  border-color: var(--primary-400, #38BDF8);
+  color: #fff;
+}
+
+/* ─── Loading Skeletons ──────────────────────────────────────────── */
+.charts-skeleton-wrapper {
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.02));
+  border-radius: 12px;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  min-height: 320px;
+}
+
+.animate-pulse-skeleton {
+  animation: skeletonPulse 1.6s ease-in-out infinite;
+}
+
+@keyframes skeletonPulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 0.95; }
+}
+
+.charts-skeleton-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.skeleton-bar {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+}
+
+.skeleton-title {
+  width: 140px;
+  height: 18px;
+}
+
+.skeleton-badge {
+  width: 60px;
+  height: 18px;
+  border-radius: 12px;
+}
+
+.charts-skeleton-content {
+  flex: 1;
+  position: relative;
+  height: 200px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.skeleton-chart-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.skeleton-chart-grid {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-around;
+  height: 100%;
+  padding: 0 1rem;
+}
+
+.skeleton-chart-bar {
+  width: 32px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.02) 100%);
+  border-radius: 4px 4px 0 0;
+}
+
+.charts-skeleton-legend {
+  display: flex;
+  justify-content: center;
+  gap: 1.5rem;
+}
+
+.skeleton-dot-label {
+  width: 80px;
+  height: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+}
+
+/* ─── Responsive ───────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .charts-header {
+    padding: 1rem 1rem 0;
+  }
+
+  .charts-tabs {
+    padding: 0.75rem 1rem 0;
+  }
+
+  .charts-filter-bar {
+    padding: 0.75rem 1rem;
+  }
+
+  .charts-body {
+    padding: 1rem;
+  }
+
+  .charts-grid-2 {
+    grid-template-columns: 1fr;
+  }
+
+  .balance-status-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .charts-period-buttons {
+    overflow-x: auto;
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .charts-tab {
+    padding: 0.5rem 0.8rem;
+    font-size: 0.75rem;
+  }
+
+  .charts-filter-select {
+    max-width: 140px;
+  }
+
+  .balance-status-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}

@@ -33,6 +33,7 @@ from .views import (
     contractor_outbound_summary,
     technical_approval_summary,
     global_balance_rows,
+    dashboard_charts,
 )
 
 # ─── Router اصلی ─────────────────────────────────────────────────────────────
@@ -79,4 +80,5 @@ urlpatterns = [
     # اطلاعات کاربر و داشبورد
     path('users/me/', current_user, name='current-user'),
     path('dashboard/', dashboard_summary, name='dashboard-summary'),
+    path('dashboard/charts/', dashboard_charts, name='dashboard-charts'),
 ]

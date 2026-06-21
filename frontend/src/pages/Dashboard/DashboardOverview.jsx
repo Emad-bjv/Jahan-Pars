@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../../services/api';
 import { useToast } from '../../contexts/ToastContext';
+import { useDownloadManager } from '../../contexts/DownloadContext';
 import { Skeleton } from '../../components/Skeleton';
 import { toPersianDigits } from '../../utils/persianNumbers';
 import JalaliDatePicker from '../../components/JalaliDatePicker';
 import BalanceModal from './BalanceModal';
 import GlobalBalanceTable from '../../components/GlobalBalanceTable';
+import DashboardCharts from '../../components/DashboardCharts/DashboardCharts';
 
 
 
@@ -97,335 +99,7 @@ const DashboardOverview = () => {
   // Balance Modal States
   const [isBalanceModalOpen, setIsBalanceModalOpen] = useState(false);
 
-  // Background Export Tasks List
-  const [exportTasks, setExportTasks] = useState([]);
-  const exportTasksRef = useRef([]);
-  const pollingIntervalRef = useRef(null);
-
-  // Keep ref updated
-  useEffect(() => {
-    exportTasksRef.current = exportTasks;
-  }, [exportTasks]);
-
-  useEffect(() => {
-    return () => {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-      }
-    };
-  }, []);
-
-  // Unified Polling Effect for Multiple Downloads
-  useEffect(() => {
-    const hasActiveTasks = exportTasks.some(t => t.status === 'PENDING' || t.status === 'PROCESSING');
-
-    if (!hasActiveTasks) {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-        pollingIntervalRef.current = null;
-      }
-      return;
-    }
-
-    if (pollingIntervalRef.current) {
-      return; // Already polling
-    }
-
-    pollingIntervalRef.current = setInterval(async () => {
-      const currentTasks = [...exportTasksRef.current];
-
-      const updatedTasksPromises = currentTasks.map(async (task) => {
-        if (task.status !== 'PENDING' && task.status !== 'PROCESSING') {
-          return task; // Don't poll completed tasks
-        }
-
-        try {
-          const res = await api.get(`balance/export-status/${task.id}/`);
-          const latest = res.data;
-
-          let updatedTask = {
-            ...task,
-            status: latest.status,
-            progress: latest.progress,
-            eta: latest.eta,
-            file_url: latest.file_url,
-            error_message: latest.error_message
-          };
-
-          // Check if it just transitioned to SUCCESS
-          if (latest.status === 'SUCCESS' && !task.downloaded) {
-            updatedTask.downloaded = true;
-            playChime();
-            const isPdf = task.type === 'pdf';
-            showSystemNotification(
-              isPdf ? "گزارش PDF آماده شد! 🎉" : "گزارش موازنه آماده شد! 🎉",
-              isPdf ? "فایل گزارش PDF موازنه کل با موفقیت تولید شد." : "فایل گزارش موازنه کل متریال کارگاه با موفقیت تولید شد و دانلود گردید."
-            );
-            showToast(isPdf ? 'تولید گزارش PDF کل با موفقیت پایان یافت.' : 'تولید گزارش موازنه کل با موفقیت پایان یافت.', 'success');
-
-            // Trigger auto-download
-            const origin = api.defaults.baseURL.replace(/\/api\/?$/, '');
-            const downloadUrl = `${origin}${latest.file_url}`;
-            const link = document.createElement('a');
-            link.href = downloadUrl;
-            link.setAttribute('download', isPdf ? 'global_material_balance.pdf' : 'global_material_balance.xlsx');
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-
-            // Set timeout to auto-remove after 8 seconds
-            setTimeout(() => {
-              setExportTasks(prev => prev.filter(t => t.id !== task.id));
-            }, 8000);
-          } else if (latest.status === 'FAILURE') {
-            const isPdf = task.type === 'pdf';
-            showToast(`خطا در تولید گزارش ${isPdf ? 'PDF' : 'اکسل'}: ${latest.error_message || 'خطای سرور'}`, 'error');
-          }
-
-          return updatedTask;
-        } catch (error) {
-          console.error(`Error polling status for task ${task.id}:`, error);
-          return task;
-        }
-      });
-
-      const updatedTasks = await Promise.all(updatedTasksPromises);
-      setExportTasks(updatedTasks);
-    }, 2000);
-
-    return () => {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-        pollingIntervalRef.current = null;
-      }
-    };
-  }, [exportTasks.some(t => t.status === 'PENDING' || t.status === 'PROCESSING')]);
-
-  // Load active export tasks on mount (Resume/Recovery)
-  useEffect(() => {
-    const fetchActiveTasks = async () => {
-      try {
-        const res = await api.get('balance/active-tasks/');
-        if (res.data && Array.isArray(res.data)) {
-          const tasks = res.data.map(t => ({
-            id: t.task_id,
-            type: t.type,
-            status: t.status,
-            progress: t.progress,
-            eta: t.eta,
-            file_url: t.file_url,
-            error_message: t.error_message,
-            downloaded: false
-          }));
-          setExportTasks(tasks);
-        }
-      } catch (error) {
-        console.error("Error fetching active export tasks on mount", error);
-      }
-    };
-    fetchActiveTasks();
-  }, []);
-
-  const triggerExport = (type) => {
-    // Check if there is already an active running/pending task
-    const activeExists = exportTasksRef.current.some(t => t.status === 'PENDING' || t.status === 'PROCESSING');
-
-    if (activeExists) {
-      const newTask = {
-        id: `queued_${Date.now()}`,
-        type: type,
-        status: 'QUEUED',
-        progress: 0,
-        eta: 0,
-        downloaded: false
-      };
-      setExportTasks(prev => [...prev, newTask]);
-      showToast(`${type === 'pdf' ? 'گزارش PDF' : 'گزارش اکسل'} به صف دانلود اضافه شد.`, 'info');
-      if (type === 'pdf') {
-        setIsPdfModalOpen(false);
-      }
-    } else {
-      if (type === 'pdf') {
-        startPdfExport();
-      } else {
-        startExcelExport();
-      }
-    }
-  };
-
-  const startExcelExport = async (existingTaskId = null, resumeFrom = null) => {
-    if (existingTaskId) {
-      setExportTasks(prev => prev.map(t => t.id === existingTaskId ? { ...t, status: 'PENDING', progress: 0 } : t));
-    }
-    try {
-      if (Notification.permission === 'default') {
-        Notification.requestPermission();
-      }
-      let endpoint = 'balance/download-global/';
-      if (resumeFrom) {
-        endpoint += `?resume_from=${resumeFrom}`;
-      }
-      const response = await api.get(endpoint);
-      if (response.data && response.data.task_id) {
-        const taskId = response.data.task_id;
-        const newTask = {
-          id: taskId,
-          type: 'excel',
-          status: response.data.status || 'PENDING',
-          progress: response.data.progress || 0,
-          eta: response.data.eta || 0,
-          downloaded: false
-        };
-        if (existingTaskId) {
-          setExportTasks(prev => prev.map(t => (t.id === existingTaskId || t.id === taskId) ? newTask : t));
-        } else {
-          setExportTasks(prev => [...prev, newTask]);
-        }
-        return newTask;
-      } else {
-        showToast('ساختار پاسخ سرور نامعتبر است.', 'error');
-        if (existingTaskId) {
-          setExportTasks(prev => prev.map(t => t.id === existingTaskId ? { ...t, status: 'FAILURE', error_message: 'ساختار پاسخ سرور نامعتبر است.' } : t));
-        }
-      }
-    } catch (error) {
-      console.error("Error starting report export", error);
-      showToast('خطا در شروع فرآیند دانلود گزارش.', 'error');
-      if (existingTaskId) {
-        setExportTasks(prev => prev.map(t => t.id === existingTaskId ? { ...t, status: 'FAILURE', error_message: 'خطا در ارتباط با سرور' } : t));
-      }
-    }
-  };
-
-  const startPdfExport = async (existingTaskId = null, resumeFrom = null) => {
-    if (existingTaskId) {
-      setExportTasks(prev => prev.map(t => t.id === existingTaskId ? { ...t, status: 'PENDING', progress: 0 } : t));
-    }
-    try {
-      if (Notification.permission === 'default') {
-        Notification.requestPermission();
-      }
-      let endpoint = 'balance/download-global-pdf/';
-      if (resumeFrom) {
-        endpoint += `?resume_from=${resumeFrom}`;
-      }
-      const response = await api.get(endpoint);
-      if (response.data && response.data.task_id) {
-        const taskId = response.data.task_id;
-        const newTask = {
-          id: taskId,
-          type: 'pdf',
-          status: response.data.status || 'PENDING',
-          progress: response.data.progress || 0,
-          eta: response.data.eta || 0,
-          downloaded: false
-        };
-        if (existingTaskId) {
-          setExportTasks(prev => prev.map(t => (t.id === existingTaskId || t.id === taskId) ? newTask : t));
-        } else {
-          setExportTasks(prev => [...prev, newTask]);
-        }
-        setIsPdfModalOpen(false);
-        return newTask;
-      } else {
-        showToast('ساختار پاسخ سرور نامعتبر است.', 'error');
-        if (existingTaskId) {
-          setExportTasks(prev => prev.map(t => t.id === existingTaskId ? { ...t, status: 'FAILURE', error_message: 'ساختار پاسخ سرور نامعتبر است.' } : t));
-        }
-      }
-    } catch (error) {
-      console.error("Error starting PDF export", error);
-      showToast('خطا در شروع فرآیند دانلود فایل PDF.', 'error');
-      if (existingTaskId) {
-        setExportTasks(prev => prev.map(t => t.id === existingTaskId ? { ...t, status: 'FAILURE', error_message: 'خطا در ارتباط با سرور' } : t));
-      }
-    }
-  };
-
-  const handleCancelTask = async (taskId) => {
-    try {
-      if (String(taskId).startsWith('queued_')) {
-        setExportTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: 'CANCELLED', progress: 0 } : t));
-        showToast('دانلود از صف حذف گردید.', 'info');
-        return;
-      }
-      setExportTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: 'CANCELLED' } : t));
-      await api.post(`balance/export-status/${taskId}/cancel/`);
-      showToast('دانلود گزارش لغو شد.', 'info');
-    } catch (error) {
-      console.error("Error cancelling task", error);
-      showToast('خطا در لغو دانلود.', 'error');
-    }
-  };
-
-  const handlePauseTask = async (taskId) => {
-    try {
-      if (String(taskId).startsWith('queued_')) {
-        setExportTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: 'PAUSED' } : t));
-        showToast('دانلود متوقف شد.', 'info');
-        return;
-      }
-      setExportTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: 'PAUSED' } : t));
-      await api.post(`balance/export-status/${taskId}/cancel/`);
-      showToast('دانلود متوقف شد.', 'info');
-    } catch (error) {
-      console.error("Error pausing task", error);
-      showToast('خطا در متوقف کردن دانلود.', 'error');
-    }
-  };
-
-  const handleResumeTask = async (task) => {
-    const activeExists = exportTasksRef.current.some(t => t.status === 'PENDING' || t.status === 'PROCESSING');
-    if (activeExists) {
-      setExportTasks(prev => prev.map(t => t.id === task.id ? {
-        ...t,
-        id: `queued_${Date.now()}`,
-        status: 'QUEUED',
-        progress: task.progress,
-        eta: 0,
-        error_message: null,
-        resumeFrom: task.id
-      } : t));
-      showToast('دانلود به انتهای صف اضافه شد.', 'info');
-    } else {
-      setExportTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: 'PENDING', progress: task.progress, error_message: null } : t));
-      if (task.type === 'pdf') {
-        await startPdfExport(task.id, task.id);
-      } else {
-        await startExcelExport(task.id, task.id);
-      }
-      showToast('دانلود مجدداً شروع شد.', 'info');
-    }
-  };
-
-  // Scheduler effect for sequential queueing
-  useEffect(() => {
-    const hasActiveTasks = exportTasks.some(t => t.status === 'PENDING' || t.status === 'PROCESSING');
-    if (hasActiveTasks) return;
-
-    // Find the first queued task
-    const nextQueuedTask = exportTasks.find(t => t.status === 'QUEUED');
-    if (!nextQueuedTask) return;
-
-    // Trigger next queued task
-    if (nextQueuedTask.type === 'pdf') {
-      startPdfExport(nextQueuedTask.id, nextQueuedTask.resumeFrom);
-    } else {
-      startExcelExport(nextQueuedTask.id, nextQueuedTask.resumeFrom);
-    }
-  }, [exportTasks]);
-
-  const handleRetryTask = async (task) => {
-    // Dismiss the failed task from list
-    setExportTasks(prev => prev.filter(t => t.id !== task.id));
-
-    // Trigger task again based on type
-    if (task.type === 'pdf') {
-      handleDownloadPdf();
-    } else {
-      downloadReport('global');
-    }
-  };
+  const { triggerExport } = useDownloadManager();
 
 
   // Excel Modal State
@@ -570,12 +244,11 @@ const DashboardOverview = () => {
 
   const downloadReport = async (type = 'global') => {
     if (type === 'global') {
-      triggerExport('excel');
+      triggerExport('global_excel', {}, 'گزارش موازنه کل (اکسل)');
     } else {
       handleDownloadExcel();
     }
   };
-
 
   const handleDownloadExcel = async () => {
     if (!selectedExcelContractor) {
@@ -583,61 +256,38 @@ const DashboardOverview = () => {
       return;
     }
 
-    try {
-      showToast('در حال آماده سازی گزارش...', 'info');
-      const response = await api.get(`balance/download/?contractor_id=${selectedExcelContractor.id}`, { responseType: 'blob' });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `balance_${selectedExcelContractor.first_name}_${selectedExcelContractor.last_name}.xlsx`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      showToast('گزارش با موفقیت دانلود شد', 'success');
-      setIsExcelModalOpen(false);
-    } catch (error) {
-      console.error("Error downloading report", error);
-      showToast('خطا در دانلود گزارش.', 'error');
-    }
+    triggerExport(
+      'balance_excel',
+      { contractor_id: selectedExcelContractor.id },
+      `گزارش موازنه اکسل - ${selectedExcelContractor.first_name} ${selectedExcelContractor.last_name}`
+    );
+    setIsExcelModalOpen(false);
   };
 
   const handleDownloadPdf = async () => {
-    try {
-      const hasFilters = selectedPdfContractors.length > 0 || selectedPdfMaterials.length > 0 || pdfFromDate || pdfToDate || pdfStatus;
+    const selectedPdfContractorsList = selectedPdfContractors || [];
+    const selectedPdfMaterialsList = selectedPdfMaterials || [];
+    const hasFilters = selectedPdfContractorsList.length > 0 || selectedPdfMaterialsList.length > 0 || pdfFromDate || pdfToDate || pdfStatus;
 
-      if (!hasFilters) {
-        triggerExport('pdf');
-        return;
-      }
-
-      // Synchronous generation for filtered PDF (normal behaviour)
-      showToast('در حال تولید فایل PDF...', 'info');
-      let urlStr = 'balance/download-pdf/?';
-      const params = new URLSearchParams();
-      if (selectedPdfContractors.length > 0) {
-        params.append('contractor_ids', selectedPdfContractors.map(c => c.id).join(','));
-      }
-      if (selectedPdfMaterials.length > 0) {
-        params.append('material_ids', selectedPdfMaterials.map(m => m.id).join(','));
-      }
-      if (pdfFromDate) params.append('from_date', pdfFromDate);
-      if (pdfToDate) params.append('to_date', pdfToDate);
-      if (pdfStatus) params.append('status', pdfStatus);
-
-      const response = await api.get(`${urlStr}${params.toString()}`, { responseType: 'blob' });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', 'balance_report.pdf');
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      showToast('گزارش PDF با موفقیت دانلود شد', 'success');
+    if (!hasFilters) {
+      triggerExport('global_pdf', {}, 'گزارش موازنه کل (PDF)');
       setIsPdfModalOpen(false);
-    } catch (error) {
-      console.error("Error downloading report", error);
-      showToast('خطا در دانلود فایل PDF.', 'error');
+      return;
     }
+
+    const options = {};
+    if (selectedPdfContractorsList.length > 0) {
+      options.contractor_ids = selectedPdfContractorsList.map(c => c.id).join(',');
+    }
+    if (selectedPdfMaterialsList.length > 0) {
+      options.material_ids = selectedPdfMaterialsList.map(m => m.id).join(',');
+    }
+    if (pdfFromDate) options.from_date = pdfFromDate;
+    if (pdfToDate) options.to_date = pdfToDate;
+    if (pdfStatus) options.status = pdfStatus;
+
+    triggerExport('balance_pdf', options, 'گزارش موازنه فیلتر شده (PDF)');
+    setIsPdfModalOpen(false);
   };
 
   const handleOpenInboundModal = async () => {
@@ -916,7 +566,7 @@ const DashboardOverview = () => {
   };
 
   return (
-    <div style={{ maxWidth: '1200px', margin: '0 auto', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 2.5rem)' }}>
+    <div style={{ maxWidth: '1200px', margin: '0 auto', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
       <div className="page-header animate-in" style={{ flexShrink: 0 }}>
         <div>
@@ -981,6 +631,9 @@ const DashboardOverview = () => {
           {renderCardUnits(balanceObj, true)}
         </div>
       </div>
+
+      {/* Charts Analytics Section */}
+      <DashboardCharts contractors={apiContractors} materials={apiMaterials} />
 
       <GlobalBalanceTable />
 
@@ -1878,120 +1531,6 @@ const DashboardOverview = () => {
                 </div>
               )}
             </div>
-          </div>
-        </div>
-      )}
-      {/* Floating Export Progress Card (Chrome-style Download Manager) */}
-      {exportTasks.length > 0 && (
-        <div className="download-progress-card multiple">
-          <div className="progress-card-header">
-            <span className="progress-card-title">لیست دانلودهای گزارش</span>
-            <button className="progress-card-close" onClick={() => setExportTasks([])}>× بستن همه</button>
-          </div>
-
-          <div className="progress-card-list">
-            {exportTasks.map((task) => (
-              <div key={task.id} className={`progress-card-item ${task.status === 'PAUSED' ? 'paused' :
-                  task.status === 'CANCELLED' ? 'cancelled' : ''
-                }`}>
-                <div className="progress-item-header">
-                  <span className="progress-item-title">
-                    {task.type === 'pdf' ? 'گزارش PDF موازنه کل' : 'گزارش اکسل موازنه کل'}
-                  </span>
-                  <button
-                    className="progress-item-close"
-                    onClick={() => {
-                      if (task.status === 'PENDING' || task.status === 'PROCESSING' || task.status === 'QUEUED') {
-                        handleCancelTask(task.id);
-                      } else {
-                        setExportTasks(prev => prev.filter(t => t.id !== task.id));
-                      }
-                    }}
-                    title={task.status === 'PENDING' || task.status === 'PROCESSING' || task.status === 'QUEUED' ? "لغو دانلود" : "حذف از لیست"}
-                  >
-                    ×
-                  </button>
-                </div>
-
-                <div className="progress-bar-container">
-                  <div
-                    className={`progress-bar-fill ${task.status === 'SUCCESS' ? 'success' :
-                        task.status === 'FAILURE' || task.status === 'CANCELLED' ? 'danger' :
-                          task.status === 'PAUSED' ? 'warning' : ''
-                      }`}
-                    style={{ width: `${task.progress}%` }}
-                  ></div>
-                </div>
-
-                <div className="progress-card-meta">
-                  <span className="progress-percentage">
-                    {task.status === 'PENDING' && 'در صف...'}
-                    {task.status === 'QUEUED' && 'در صف انتظار...'}
-                    {task.status === 'PROCESSING' && `${task.progress}%`}
-                    {task.status === 'SUCCESS' && 'تکمیل شد'}
-                    {task.status === 'PAUSED' && 'متوقف شده'}
-                    {task.status === 'CANCELLED' && 'لغو شده'}
-                    {task.status === 'FAILURE' && (task.error_message === 'توسط کاربر لغو شد.' || task.error_message === 'لغو شده توسط کاربر' ? 'لغو شد' : 'خطا')}
-                  </span>
-
-                  {task.status === 'PROCESSING' && task.eta > 0 && (
-                    <span className="progress-eta">
-                      باقی‌مانده: {task.eta} ثانیه
-                    </span>
-                  )}
-                  {task.status === 'SUCCESS' && (
-                    <span className="progress-eta success-text">
-                      فایل دانلود شد
-                    </span>
-                  )}
-                  {task.status === 'FAILURE' && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span className="progress-eta error-text" title={task.error_message}>
-                        {task.error_message === 'توسط کاربر لغو شد.' || task.error_message === 'لغو شده توسط کاربر' ? 'لغو شده' : 'خطا در تولید'}
-                      </span>
-                      <button
-                        className="progress-retry-btn"
-                        onClick={() => handleRetryTask(task)}
-                        style={{
-                          background: 'rgba(99, 102, 241, 0.08)',
-                          border: 'none',
-                          borderRadius: '4px',
-                          padding: '2px 6px',
-                          fontSize: '10px',
-                          cursor: 'pointer',
-                          color: 'var(--primary-600)',
-                          fontFamily: 'inherit',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '3px'
-                        }}
-                      >
-                        🔄 تلاش مجدد
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Buttons next to each other as requested */}
-                  {(task.status === 'PENDING' || task.status === 'PROCESSING') && (
-                    <div className="progress-actions">
-                      <button className="btn-action pause" onClick={() => handlePauseTask(task.id)}>توقف</button>
-                      <button className="btn-action cancel" onClick={() => handleCancelTask(task.id)}>لغو</button>
-                    </div>
-                  )}
-                  {task.status === 'PAUSED' && (
-                    <div className="progress-actions">
-                      <button className="btn-action resume" onClick={() => handleResumeTask(task)}>ادامه</button>
-                      <button className="btn-action cancel" onClick={() => handleCancelTask(task.id)}>لغو</button>
-                    </div>
-                  )}
-                  {task.status === 'QUEUED' && (
-                    <div className="progress-actions">
-                      <button className="btn-action cancel" onClick={() => handleCancelTask(task.id)}>لغو</button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
           </div>
         </div>
       )}

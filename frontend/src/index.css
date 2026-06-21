@@ -2360,8 +2360,8 @@ main {
 .notification-dropdown {
   position: absolute;
   top: calc(100% + 8px);
-  right: 0;
-  left: auto;
+  left: 0;
+  right: auto;
   width: 340px;
   max-width: calc(100vw - 2rem);
   background: var(--bg-surface-solid);

@@ -143,19 +143,19 @@ const DashboardLayout = () => {
       {/* Sidebar */}
       <aside className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''} ${isCollapsed ? 'collapsed' : ''}`}>
         {/* Toggle Collapse Button (Desktop only) */}
-        <button 
-          className="sidebar-toggle-btn" 
+        <button
+          className="sidebar-toggle-btn"
           onClick={toggleCollapse}
           title={isCollapsed ? "بزرگ کردن منو" : "کوچک کردن منو"}
         >
-          <svg 
-            width="10" 
-            height="10" 
-            viewBox="0 0 24 24" 
-            fill="none" 
-            stroke="currentColor" 
-            strokeWidth="3" 
-            strokeLinecap="round" 
+          <svg
+            width="10"
+            height="10"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="3"
+            strokeLinecap="round"
             strokeLinejoin="round"
             style={{ transform: isCollapsed ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.3s ease' }}
           >
@@ -165,9 +165,9 @@ const DashboardLayout = () => {
 
         {/* Brand */}
         <div className="sidebar-brand">
-          <h2 className="brand-full">جهان‌پارس</h2>
-          <h2 className="brand-mini">ج‌‌پ</h2>
-          <p className="brand-full">سیستم موازنه متریال</p>
+          <h2 className="brand-full">Jahan Pars</h2>
+          <h2 className="brand-mini">JP</h2>
+          <p className="brand-full">Material Balance System</p>
         </div>
 
         {/* Navigation */}
@@ -191,7 +191,7 @@ const DashboardLayout = () => {
           {/* Notification Bell moved to top of site */}
 
           {/* User Info */}
-          <div 
+          <div
             className={`sidebar-user ${getRoleClass(user)}`}
             style={{ cursor: 'pointer' }}
             onClick={() => setIsProfileModalOpen(true)}
@@ -260,9 +260,9 @@ const DashboardLayout = () => {
 
       {/* User Profile Modal */}
       {isProfileModalOpen && (
-        <UserProfileModal 
-          user={user} 
-          onClose={() => setIsProfileModalOpen(false)} 
+        <UserProfileModal
+          user={user}
+          onClose={() => setIsProfileModalOpen(false)}
         />
       )}
     </div>

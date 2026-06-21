@@ -1106,3 +1106,252 @@ def global_balance_rows(request):
     )
     return Response(data)
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# داده‌های نموداری داشبورد (Charts API)
+# ─────────────────────────────────────────────────────────────────────────────
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsTechnicalOffice])
+def dashboard_charts(request):
+    """
+    API اختصاصی برای نمودارهای داشبورد.
+    پارامترها:
+        period: week | month | 3months | year | custom
+        from_date, to_date: فقط وقتی period=custom (فرمت: YYYY-MM-DD شمسی)
+        contractor_id: فیلتر پیمانکار
+        material_id: فیلتر متریال
+        unit: فیلتر واحد (KG, M, SQM, PCS)
+    """
+    import jdatetime
+    from datetime import timedelta
+    from django.db.models import Q, F, Value, DecimalField
+    from django.db.models.functions import Coalesce
+    from collections import defaultdict
+
+    # ─── Parse Filters ──────────────────────────────────────────────
+    period = request.GET.get('period', 'month')
+    from_date_str = request.GET.get('from_date')
+    to_date_str = request.GET.get('to_date')
+    contractor_id = request.GET.get('contractor_id')
+    material_id = request.GET.get('material_id')
+    unit_filter = request.GET.get('unit')
+
+    # Calculate date range
+    today = jdatetime.date.today()
+    if period == 'week':
+        start_date = today - timedelta(days=7)
+    elif period == 'month':
+        start_date = today - timedelta(days=30)
+    elif period == '3months':
+        start_date = today - timedelta(days=90)
+    elif period == 'year':
+        start_date = today - timedelta(days=365)
+    elif period == 'custom' and from_date_str and to_date_str:
+        try:
+            parts = from_date_str.split('-')
+            start_date = jdatetime.date(int(parts[0]), int(parts[1]), int(parts[2]))
+            parts = to_date_str.split('-')
+            end_date = jdatetime.date(int(parts[0]), int(parts[1]), int(parts[2]))
+            today = end_date
+        except (ValueError, IndexError):
+            start_date = today - timedelta(days=30)
+    else:
+        start_date = today - timedelta(days=30)
+
+    end_date = today
+
+    # ─── Base querysets with filters ────────────────────────────────
+    tx_qs = WarehouseTransaction.objects.filter(date__gte=start_date, date__lte=end_date)
+    approval_qs = TechnicalOfficeApproval.objects.filter(
+        approval_date__gte=start_date, approval_date__lte=end_date
+    )
+
+    if contractor_id:
+        tx_qs = tx_qs.filter(contractor_id=contractor_id)
+        approval_qs = approval_qs.filter(contractor_id=contractor_id)
+    if material_id:
+        tx_qs = tx_qs.filter(material_id=material_id)
+        approval_qs = approval_qs.filter(material_id=material_id)
+    if unit_filter:
+        tx_qs = tx_qs.filter(material__unit=unit_filter)
+        approval_qs = approval_qs.filter(material__unit=unit_filter)
+
+    # ─── 1. Time Trends ────────────────────────────────────────────
+    inbound_by_date = defaultdict(float)
+    outbound_by_date = defaultdict(float)
+    approved_by_date = defaultdict(float)
+
+    for tx in tx_qs.values('date', 'transaction_type').annotate(total=Sum('quantity')):
+        date_str = str(tx['date'])
+        if tx['transaction_type'] == 'IN':
+            inbound_by_date[date_str] += float(tx['total'])
+        else:
+            outbound_by_date[date_str] += float(tx['total'])
+
+    for ap in approval_qs.values('approval_date').annotate(total=Sum('approved_quantity')):
+        date_str = str(ap['approval_date'])
+        approved_by_date[date_str] += float(ap['total'])
+
+    # Merge all dates and sort
+    all_dates = sorted(set(
+        list(inbound_by_date.keys()) +
+        list(outbound_by_date.keys()) +
+        list(approved_by_date.keys())
+    ))
+
+    time_trends = {
+        'labels': all_dates,
+        'inbound': [round(inbound_by_date.get(d, 0), 2) for d in all_dates],
+        'outbound': [round(outbound_by_date.get(d, 0), 2) for d in all_dates],
+        'approved': [round(approved_by_date.get(d, 0), 2) for d in all_dates],
+    }
+
+    # ─── 2. Contractor Performance (filtered by period) ──
+    contractor_perf_qs = WarehouseTransaction.objects.filter(
+        transaction_type='OUT',
+        date__gte=start_date,
+        date__lte=end_date
+    )
+    contractor_appr_qs = TechnicalOfficeApproval.objects.filter(
+        approval_date__gte=start_date,
+        approval_date__lte=end_date
+    )
+
+    if unit_filter:
+        contractor_perf_qs = contractor_perf_qs.filter(material__unit=unit_filter)
+        contractor_appr_qs = contractor_appr_qs.filter(material__unit=unit_filter)
+    if material_id:
+        contractor_perf_qs = contractor_perf_qs.filter(material_id=material_id)
+        contractor_appr_qs = contractor_appr_qs.filter(material_id=material_id)
+
+    # Outbound per contractor
+    out_data = {}
+    for row in contractor_perf_qs.values(
+        'contractor_id',
+        'contractor__first_name',
+        'contractor__last_name'
+    ).annotate(total=Sum('quantity')):
+        cid = row['contractor_id']
+        out_data[cid] = {
+            'name': f"{row['contractor__first_name']} {row['contractor__last_name']}",
+            'outbound': float(row['total']),
+            'approved': 0.0,
+        }
+
+    # Approved per contractor
+    for row in contractor_appr_qs.values(
+        'contractor_id',
+        'contractor__first_name',
+        'contractor__last_name'
+    ).annotate(total=Sum('approved_quantity')):
+        cid = row['contractor_id']
+        if cid in out_data:
+            out_data[cid]['approved'] = float(row['total'])
+        else:
+            out_data[cid] = {
+                'name': f"{row['contractor__first_name']} {row['contractor__last_name']}",
+                'outbound': 0.0,
+                'approved': float(row['total']),
+            }
+
+    contractor_performance = []
+    for cid, vals in out_data.items():
+        vals['balance'] = round(vals['outbound'] - vals['approved'], 2)
+        contractor_performance.append(vals)
+    contractor_performance.sort(key=lambda x: x['outbound'], reverse=True)
+
+    # ─── 3. Material Distribution (filtered by period) ────────────────
+    mat_dist_qs = WarehouseTransaction.objects.filter(
+        transaction_type='OUT',
+        date__gte=start_date,
+        date__lte=end_date
+    )
+    if unit_filter:
+        mat_dist_qs = mat_dist_qs.filter(material__unit=unit_filter)
+    if contractor_id:
+        mat_dist_qs = mat_dist_qs.filter(contractor_id=contractor_id)
+
+    material_distribution = []
+    for row in mat_dist_qs.values(
+        'material__name', 'material__unit'
+    ).annotate(total=Sum('quantity')).order_by('-total'):
+        material_distribution.append({
+            'name': row['material__name'],
+            'value': float(row['total']),
+            'unit': row['material__unit'],
+        })
+
+    # ─── 4. Balance Status ─────────────────────────────────────────
+    from .models import GlobalMaterialBalance
+    balance_qs = GlobalMaterialBalance.objects.all()
+    if contractor_id:
+        balance_qs = balance_qs.filter(contractor_id=contractor_id)
+    if material_id:
+        balance_qs = balance_qs.filter(material_id=material_id)
+    if unit_filter:
+        balance_qs = balance_qs.filter(material__unit=unit_filter)
+
+    label_counts = defaultdict(int)
+    balance_details = []
+    for row in balance_qs.values(
+        'contractor__first_name', 'contractor__last_name',
+        'material__name', 'balance', 'balance_label'
+    ):
+        label = row['balance_label']
+        label_counts[label] += 1
+        balance_details.append({
+            'contractor': f"{row['contractor__first_name']} {row['contractor__last_name']}",
+            'material': row['material__name'],
+            'balance': float(row['balance'] or 0),
+            'label': label,
+        })
+
+    balance_status = {
+        'debtor': label_counts.get('بدهکار', 0) + label_counts.get('مازاد دریافت', 0),
+        'creditor': label_counts.get('بستانکار', 0) + label_counts.get('کسری', 0),
+        'cleared': label_counts.get('تسویه', 0),
+        'under_review': label_counts.get('در حال بررسی', 0) + label_counts.get('بدون تاییدیه', 0),
+        'details': balance_details[:50],  # Limit to prevent huge payloads
+    }
+
+    # ─── 5. Inventory Status ───────────────────────────────────────
+    inv_qs = MaterialItem.objects.all()
+    if unit_filter:
+        inv_qs = inv_qs.filter(unit=unit_filter)
+    if material_id:
+        inv_qs = inv_qs.filter(id=material_id)
+
+    inventory_status = []
+    for mat in inv_qs.filter(current_stock__gt=0).order_by('-current_stock')[:30]:
+        inventory_status.append({
+            'id': mat.id,
+            'name': str(mat),
+            'current_stock': float(mat.current_stock),
+            'threshold': float(mat.low_stock_threshold),
+            'unit': mat.unit,
+            'is_critical': mat.low_stock_threshold > 0 and mat.current_stock <= mat.low_stock_threshold,
+        })
+
+    # Also include critical items (below threshold) even if not in top 30
+    critical_ids = [item['id'] for item in inventory_status]
+    for mat in inv_qs.filter(
+        low_stock_threshold__gt=0,
+        current_stock__lte=F('low_stock_threshold')
+    ).exclude(id__in=critical_ids)[:10]:
+        inventory_status.append({
+            'id': mat.id,
+            'name': str(mat),
+            'current_stock': float(mat.current_stock),
+            'threshold': float(mat.low_stock_threshold),
+            'unit': mat.unit,
+            'is_critical': True,
+        })
+
+    return Response({
+        'time_trends': time_trends,
+        'contractor_performance': contractor_performance,
+        'material_distribution': material_distribution,
+        'balance_status': balance_status,
+        'inventory_status': inventory_status,
+    })
+
